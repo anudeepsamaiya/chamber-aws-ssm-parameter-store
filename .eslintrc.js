@@ -24,7 +24,12 @@ module.exports = {
   },
   overrides: [
     {
-      files: ['**/*.test.js'],
+      files: ['**/*.test.js', '**/tests/**/*.js'],
+      rules: {
+        'node/no-unpublished-require': 'off',
+        'jest/no-disabled-tests': 'warn',
+        'jest/expect-expect': 'off',
+      },
       env: {
         jest: true,
       },
