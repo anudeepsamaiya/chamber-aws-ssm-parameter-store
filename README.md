@@ -1,5 +1,8 @@
 # Setup Chamber and Fetch AWS SSM Parameters
 
+[![Test](https://github.com/anudeepsamaiya/chamber-aws-ssm-parameter-store/actions/workflows/test.yml/badge.svg)](https://github.com/anudeepsamaiya/chamber-aws-ssm-parameter-store/actions/workflows/test.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 This GitHub Action sets up [Chamber](https://github.com/segmentio/chamber), retrieves AWS SSM parameters, and exports them as environment variables in your workflow. It helps you securely manage and use parameters such as database credentials, API keys, or other secrets within your CI/CD pipeline.
 
 ## Overview
