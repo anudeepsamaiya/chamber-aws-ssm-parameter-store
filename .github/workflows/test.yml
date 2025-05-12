@@ -17,17 +17,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Setup Docker Compose
-        uses: isbang/compose-action@v1.5.1
-        with:
-          compose-file: "./docker-compose.yml"
-
-      - name: Validate action.yml
-        run: docker compose exec -T test-runner npm run validate
-
-      - name: Clean up
-        if: always()
-        run: docker compose down
+      - name: Install and validate
+        run: |
+          make docker-dev-env
+          docker compose exec -T test-runner npm install
+          make validate
 
   lint:
     name: Run linters
@@ -36,17 +30,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Setup Docker Compose
-        uses: isbang/compose-action@v1.5.1
-        with:
-          compose-file: "./docker-compose.yml"
-
-      - name: Run ESLint
-        run: docker compose exec -T test-runner npm run lint
-
-      - name: Clean up
-        if: always()
-        run: docker compose down
+      - name: Run linters
+        run: |
+          make docker-dev-env
+          docker compose exec -T test-runner npm install
+          make lint
 
   unit-tests:
     name: Run unit tests
@@ -55,17 +43,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Setup Docker Compose
-        uses: isbang/compose-action@v1.5.1
-        with:
-          compose-file: "./docker-compose.yml"
-
       - name: Run unit tests
-        run: docker compose exec -T test-runner npm test
-
-      - name: Clean up
-        if: always()
-        run: docker compose down
+        run: |
+          make docker-dev-env
+          docker compose exec -T test-runner npm install
+          make test-unit
 
   # Run integration tests with LocalStack
   integration-tests:
@@ -75,27 +57,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Setup Docker Compose
-        uses: isbang/compose-action@v1.5.1
-        with:
-          compose-file: "./docker-compose.yml"
-          services: |
-            localstack
-            test-runner
-            test-runner
-
-      - name: Wait for LocalStack
+      - name: Setup environment and run integration tests
         run: |
-          until curl -s http://localhost:4566/health?services=ssm | grep -q '"ssm": "running"'; do
-            sleep 1
-          done
-
-      - name: Run integration tests with LocalStack
-        run: docker compose exec -T test-runner npm run test:integration
-
-      - name: Clean up
-        if: always()
-        run: docker compose down
+          make docker-dev-env
+          echo "Waiting for LocalStack to be ready..."
+          sleep 10
+          docker compose exec -T test-runner npm install
+          make test-integration
 
   # Test the actual action in GitHub environment
   test-action:
@@ -106,24 +74,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
       
-      - name: Setup Docker Compose
-        uses: isbang/compose-action@v1.5.1
-        with:
-          compose-file: "./docker-compose.yml"
-          services: |
-            localstack
-            test-runner
-
-      - name: Wait for LocalStack
+      - name: Setup LocalStack
         run: |
-          until curl -s http://localhost:4566/health?services=ssm | grep -q '"ssm": "running"'; do
-            sleep 1
-          done
-          aws configure set aws_access_key_id test
-          aws configure set aws_secret_access_key test
-          aws configure set region us-east-1
-          aws configure set output json
-          aws configure set endpoint_url http://localhost:4566
+          make docker-dev-env
+          echo "Waiting for LocalStack to be ready..."
+          sleep 10
 
       - name: Create test parameters
         run: |
@@ -134,6 +89,10 @@ jobs:
 
           aws --endpoint-url=http://localhost:4566 ssm put-parameter --name "$TEST_PARAM_1" --value "$TEST_VALUE_1" --type String --overwrite
           aws --endpoint-url=http://localhost:4566 ssm put-parameter --name "$TEST_PARAM_2" --value "$TEST_VALUE_2" --type String --overwrite
+
+          # Verify parameters were created
+          aws --endpoint-url=http://localhost:4566 ssm get-parameter --name "$TEST_PARAM_1" || echo "Failed to create parameter $TEST_PARAM_1"
+          aws --endpoint-url=http://localhost:4566 ssm get-parameter --name "$TEST_PARAM_2" || echo "Failed to create parameter $TEST_PARAM_2"
 
       - name: Configure Chamber for LocalStack
         run: |

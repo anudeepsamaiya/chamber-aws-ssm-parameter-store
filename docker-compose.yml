@@ -1,8 +1,4 @@
 # Docker Compose configuration for testing with LocalStack
-#
-# This file defines two services:
-# 1. localstack - Simulates AWS services locally for testing
-# 2. test-runner - Runs the tests against the LocalStack environment
 
 services:
   # LocalStack service
