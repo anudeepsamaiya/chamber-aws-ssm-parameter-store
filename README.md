@@ -5,7 +5,7 @@ This GitHub Action sets up **Chamber**, retrieves AWS **SSM parameters**, and ex
 
 ## **Overview**
 
-This GitHub Action allows you to easily integrate **AWS SSM** parameters into your workflows. By utilizing **Chamber**, it retrieves SSM parameters, and you can choose how to name the environment variables. The action also supports **namespacing**, where you can have environment variables prefixed by their SSM parameter path, or you can opt for a simpler name that only uses the parameter’s name.
+This GitHub Action allows you to easily integrate **AWS SSM** parameters into your workflows. By utilizing **Chamber**, it retrieves SSM parameters, and you can choose how to name the environment variables. The action also supports **namespacing**, where you can have environment variables prefixed by their SSM parameter path, or you can opt for a simpler name that only uses the parameter's name.
 
 You can inject AWS credentials directly via environment variables or GitHub secrets, and the action will handle setting up **Chamber** for you automatically.
 
@@ -51,7 +51,7 @@ Once the parameters are fetched, the action automatically exports them as enviro
 
 You can control how your parameters are exported:
 
-* **Namespaced**: If `namespaced: true`, the environment variables will be prefixed by the first part of the parameter’s path (e.g., `MY_APP_DB_PASSWORD` for the parameter `/my-app/db-password`).
+* **Namespaced**: If `namespaced: true`, the environment variables will be prefixed by the first part of the parameter's path (e.g., `MY_APP_DB_PASSWORD` for the parameter `/my-app/db-password`).
 * **Non-namespaced**: If `namespaced: false`, the environment variable will use only the parameter name (e.g., `DB_PASSWORD`).
 
 This allows you to control how the variables are named based on your needs or naming conventions.
@@ -93,7 +93,7 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Fetch SSM Parameters and Set as Env Vars
-        uses: your-username/your-repo@v1
+        uses: anudeepsamaiya/chamber-aws-ssm-parameter-store@v1
         with:
           parameters:
             - "/my-app/db-password"
@@ -123,7 +123,7 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Fetch SSM Parameters and Set as Env Vars
-        uses: your-username/your-repo@v1
+        uses: anudeepsamaiya/chamber-aws-ssm-parameter-store@v1
         with:
           parameters:
             - "/my-app/db-password:MY_DB_PASSWORD"
@@ -152,7 +152,7 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Fetch SSM Parameters and Set as Env Vars
-        uses: your-username/your-repo@v1
+        uses: anudeepsamaiya/chamber-aws-ssm-parameter-store@v1
         with:
           parameters:
             - "/my-app/db-password"
@@ -180,7 +180,7 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Fetch SSM Parameters and Set as Env Vars
-        uses: your-username/your-repo@v1
+        uses: anudeepsamaiya/chamber-aws-ssm-parameter-store@v1
         with:
           parameters:
             - "/my-app/db-password"
@@ -213,12 +213,88 @@ You can also pass AWS credentials directly as inputs to this action, such as `aw
 
 ---
 
-## **License**
+## **Development and Testing**
 
-This GitHub Action is licensed under the **MIT License**.
+### **Local Development Setup**
+
+To set up the development environment:
+
+```bash
+# Clone the repository
+git clone https://github.com/anudeepsamaiya/chamber-aws-ssm-parameter-store.git
+cd chamber-aws-ssm-parameter-store
+
+# Install dependencies
+npm install
+```
+
+### **Running Tests**
+
+The action includes a comprehensive test suite:
+
+```bash
+# Run unit tests
+npm test
+
+# Run integration tests (with AWS calls mocked)
+SKIP_AWS_TESTS=true npm run test:integration
+
+# Run all tests
+make test
+```
+
+### **Testing with LocalStack**
+
+You can test the action locally using LocalStack to simulate AWS services:
+
+```bash
+# Start LocalStack for AWS simulation
+make docker-test-env
+
+# Or use Docker Compose
+docker-compose up -d localstack
+docker-compose run test-runner
+```
+
+### **Using the Makefile**
+
+A Makefile is provided for common development tasks:
+
+```bash
+# List all available commands
+make help
+
+# Lint the code
+make lint
+
+# Validate the action.yml format
+make validate
+
+# Test the action locally using act
+make local-action-test
+```
 
 ---
 
-## **Conclusion**
+## **Contributing**
 
-This GitHub Action simplifies the process of securely retrieving and using AWS SSM parameters in your CI
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Make your changes and ensure tests pass
+4. Commit your changes (`git commit -m 'Add some amazing feature'`)
+5. Push to the branch (`git push origin feature/amazing-feature`)
+6. Open a Pull Request
+
+Before submitting your PR, please:
+- Run the test suite (`make test`)
+- Run linters (`make lint`)
+- Validate the action format (`make validate`)
+- Update documentation as needed
+
+---
+
+## **License**
+
+This GitHub Action is licensed under the **MIT License**.

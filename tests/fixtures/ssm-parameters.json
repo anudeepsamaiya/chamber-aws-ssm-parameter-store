@@ -1,0 +1,18 @@
+{
+  "/my-app/db-password": {
+    "value": "secret-password-123",
+    "type": "SecureString"
+  },
+  "/my-app/api-key": {
+    "value": "api-key-abc-xyz",
+    "type": "SecureString"
+  },
+  "/service/endpoint": {
+    "value": "https://api.example.com",
+    "type": "String"
+  },
+  "/config/feature-flags/dark-mode": {
+    "value": "true",
+    "type": "String"
+  }
+}

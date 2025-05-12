@@ -1,0 +1,41 @@
+{
+  "name": "chamber-aws-ssm-parameter-store",
+  "version": "1.0.0",
+  "description": "GitHub Action to setup Chamber and fetch AWS SSM parameters",
+  "main": "action.yml",
+  "scripts": {
+    "test": "jest",
+    "test:integration": "jest --config jest.integration.config.js",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "validate": "github-action-validator action.yml"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anudeepsamaiya/chamber-aws-ssm-parameter-store.git"
+  },
+  "keywords": [
+    "github-action",
+    "aws",
+    "ssm",
+    "parameter-store",
+    "chamber"
+  ],
+  "author": "Anudeep Samaiya",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/anudeepsamaiya/chamber-aws-ssm-parameter-store/issues"
+  },
+  "homepage": "https://github.com/anudeepsamaiya/chamber-aws-ssm-parameter-store#readme",
+  "devDependencies": {
+    "@aws-sdk/client-ssm": "^3.0.0",
+    "aws-sdk-mock": "^5.8.0",
+    "eslint": "^8.0.0",
+    "eslint-plugin-jest": "^27.6.0",
+    "eslint-plugin-node": "^11.1.0",
+    "github-action-validator": "^0.6.0",
+    "jest": "^29.0.0",
+    "jest-environment-node": "^29.0.0",
+    "sinon": "^15.0.0"
+  }
+}
