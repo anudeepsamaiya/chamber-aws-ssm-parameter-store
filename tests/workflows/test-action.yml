@@ -55,9 +55,9 @@ jobs:
       - name: Test action with namespaced parameters
         uses: ./
         with:
-          parameters:
-            - "${{ env.TEST_PARAM_1 }}"
-            - "${{ env.TEST_PARAM_2 }}"
+          parameters: |
+            ${{ env.TEST_PARAM_1 }}
+            ${{ env.TEST_PARAM_2 }}
           namespaced: 'true'
           aws-region: 'us-east-1'
           aws-access-key-id: 'test'
@@ -80,9 +80,9 @@ jobs:
       - name: Test action with non-namespaced parameters
         uses: ./
         with:
-          parameters:
-            - "${{ env.TEST_PARAM_1 }}"
-            - "${{ env.TEST_PARAM_2 }}"
+          parameters: |
+            ${{ env.TEST_PARAM_1 }}
+            ${{ env.TEST_PARAM_2 }}
           namespaced: 'false'
           aws-region: 'us-east-1'
           aws-access-key-id: 'test'
@@ -105,9 +105,9 @@ jobs:
       - name: Test action with custom parameter mappings
         uses: ./
         with:
-          parameters:
-            - "${{ env.TEST_PARAM_1 }}:CUSTOM_PARAM_1"
-            - "${{ env.TEST_PARAM_2 }}:CUSTOM_PARAM_2"
+          parameters: |
+            ${{ env.TEST_PARAM_1 }}:CUSTOM_PARAM_1
+            ${{ env.TEST_PARAM_2 }}:CUSTOM_PARAM_2
           namespaced: 'true'
           aws-region: 'us-east-1'
           aws-access-key-id: 'test'
