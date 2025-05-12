@@ -50,80 +50,10 @@ jobs:
           sudo mv /tmp/chamber/chamber /usr/local/bin/chamber
           chamber version
 
-      # Test action with namespaced parameters
-      - name: Test action with namespaced parameters
-        uses: ./
-        with:
-          parameters: |
-            ${{ env.TEST_PARAM_1 }}
-            ${{ env.TEST_PARAM_2 }}
-          namespaced: 'true'
-          aws-region: 'us-east-1'
-          aws-access-key-id: 'test'
-          aws-secret-access-key: 'test'
-
-      # Verify environment variables are set correctly
-      - name: Verify namespaced environment variables
-        run: |
-          if [ "$TEST_ACTION_PARAM1" != "$TEST_VALUE_1" ]; then
-            echo "Namespaced test failed: TEST_ACTION_PARAM1 = $TEST_ACTION_PARAM1, expected $TEST_VALUE_1"
-            exit 1
-          fi
-          if [ "$TEST_ACTION_PARAM2" != "$TEST_VALUE_2" ]; then
-            echo "Namespaced test failed: TEST_ACTION_PARAM2 = $TEST_ACTION_PARAM2, expected $TEST_VALUE_2"
-            exit 1
-          fi
-          echo "Namespaced test passed!"
-
-      # Test action with non-namespaced parameters
-      - name: Test action with non-namespaced parameters
-        uses: ./
-        with:
-          parameters: |
-            ${{ env.TEST_PARAM_1 }}
-            ${{ env.TEST_PARAM_2 }}
-          namespaced: 'false'
-          aws-region: 'us-east-1'
-          aws-access-key-id: 'test'
-          aws-secret-access-key: 'test'
-
-      # Verify environment variables are set correctly
-      - name: Verify non-namespaced environment variables
-        run: |
-          if [ "$PARAM1" != "$TEST_VALUE_1" ]; then
-            echo "Non-namespaced test failed: PARAM1 = $PARAM1, expected $TEST_VALUE_1"
-            exit 1
-          fi
-          if [ "$PARAM2" != "$TEST_VALUE_2" ]; then
-            echo "Non-namespaced test failed: PARAM2 = $PARAM2, expected $TEST_VALUE_2"
-            exit 1
-          fi
-          echo "Non-namespaced test passed!"
-
-      # Test action with custom parameter mappings
-      - name: Test action with custom parameter mappings
-        uses: ./
-        with:
-          parameters: |
-            ${{ env.TEST_PARAM_1 }}:CUSTOM_PARAM_1
-            ${{ env.TEST_PARAM_2 }}:CUSTOM_PARAM_2
-          namespaced: 'true'
-          aws-region: 'us-east-1'
-          aws-access-key-id: 'test'
-          aws-secret-access-key: 'test'
-
-      # Verify environment variables are set correctly
-      - name: Verify custom parameter mappings
-        run: |
-          if [ "$CUSTOM_PARAM_1" != "$TEST_VALUE_1" ]; then
-            echo "Custom mapping test failed: CUSTOM_PARAM_1 = $CUSTOM_PARAM_1, expected $TEST_VALUE_1"
-            exit 1
-          fi
-          if [ "$CUSTOM_PARAM_2" != "$TEST_VALUE_2" ]; then
-            echo "Custom mapping test failed: CUSTOM_PARAM_2 = $CUSTOM_PARAM_2, expected $TEST_VALUE_2"
-            exit 1
-          fi
-          echo "Custom mapping test passed!"
+      # Run all three test configurations
+      - name: Run standard action tests
+        uses: ./.github/workflows/test-action-configs.yml
 
       - name: Clean up
+        if: always()
         run: docker compose down

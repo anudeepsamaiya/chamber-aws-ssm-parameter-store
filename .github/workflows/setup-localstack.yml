@@ -1,0 +1,59 @@
+name: Setup LocalStack
+
+on:
+  workflow_call:
+    inputs:
+      wait_time:
+        description: 'Time to wait for LocalStack to be ready (in seconds)'
+        required: false
+        type: number
+        default: 10
+
+jobs:
+  setup:
+    name: Setup LocalStack and Test Environment
+    runs-on: ubuntu-latest
+    outputs:
+      endpoint_url: "http://localhost:4566"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Start LocalStack
+        run: |
+          make docker-dev-env
+          echo "Waiting for LocalStack to be ready..."
+          sleep ${{ inputs.wait_time }}
+
+      - name: Configure AWS CLI
+        run: |
+          aws configure set aws_access_key_id test
+          aws configure set aws_secret_access_key test
+          aws configure set region us-east-1
+          aws configure set output json
+          aws configure set endpoint_url http://localhost:4566
+          
+          # Set environment variables
+          echo "AWS_ACCESS_KEY_ID=test" >> $GITHUB_ENV
+          echo "AWS_SECRET_ACCESS_KEY=test" >> $GITHUB_ENV
+          echo "AWS_REGION=us-east-1" >> $GITHUB_ENV
+          echo "CHAMBER_AWS_SSM_ENDPOINT=http://localhost:4566" >> $GITHUB_ENV
+
+      - name: Create test parameters
+        run: |
+          export TEST_PARAM_1="/test-action/param1"
+          export TEST_PARAM_2="/test-action/param2"
+          export TEST_VALUE_1="value1"
+          export TEST_VALUE_2="value2"
+
+          # Set parameters in LocalStack
+          aws --endpoint-url=http://localhost:4566 --region us-east-1 ssm put-parameter \
+            --name "$TEST_PARAM_1" --value "$TEST_VALUE_1" --type String --overwrite
+          aws --endpoint-url=http://localhost:4566 --region us-east-1 ssm put-parameter \
+            --name "$TEST_PARAM_2" --value "$TEST_VALUE_2" --type String --overwrite
+
+          # Verify parameters were created
+          aws --endpoint-url=http://localhost:4566 --region us-east-1 ssm get-parameter \
+            --name "$TEST_PARAM_1" || echo "Failed to create parameter $TEST_PARAM_1"
+          aws --endpoint-url=http://localhost:4566 --region us-east-1 ssm get-parameter \
+            --name "$TEST_PARAM_2" || echo "Failed to create parameter $TEST_PARAM_2"
