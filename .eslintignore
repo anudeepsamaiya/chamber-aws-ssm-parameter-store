@@ -1,0 +1,16 @@
+# Ignore YAML files
+*.yml
+*.yaml
+action.yml
+
+# Ignore node modules
+node_modules/
+
+# Ignore test fixtures
+tests/fixtures/
+
+# Ignore test workflows
+tests/workflows/
+
+# Ignore Docker files
+docker-compose.yml
