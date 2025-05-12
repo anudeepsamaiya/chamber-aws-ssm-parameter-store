@@ -33,12 +33,14 @@ runs:
   using: "composite"
   steps:
     - name: Set up AWS CLI with provided or environment credentials
+      shell: bash
       run: |
-        aws configure set aws_access_key_id "${{ inputs.aws-access-key-id || AWS_ACCESS_KEY_ID }}"
-        aws configure set aws_secret_access_key "${{ inputs.aws-secret-access-key || AWS_SECRET_ACCESS_KEY }}"
-        aws configure set region "${{ inputs.aws-region || AWS_REGION || 'us-east-1' }}"
+        aws configure set aws_access_key_id "${{ inputs.aws-access-key-id || env.AWS_ACCESS_KEY_ID }}"
+        aws configure set aws_secret_access_key "${{ inputs.aws-secret-access-key || env.AWS_SECRET_ACCESS_KEY }}"
+        aws configure set region "${{ inputs.aws-region || env.AWS_REGION || 'us-east-1' }}"
 
     - name: Install Chamber
+      shell: bash
       run: |
         CHAMBER_VERSION="${{ inputs.chamber_version || env.CHAMBER_VERSION || 'latest' }}"
 
@@ -49,10 +51,10 @@ runs:
           chmod +x /usr/local/bin/chamber
         fi
 
-    # Step 4: Fetch parameters from AWS SSM and populate them as environment variables
     - name: Fetch and set SSM parameters as env variables
+      shell: bash
       run: |
-        for ssm_param_name in "${{ inputs.parameters[@] }}"; do
+        for ssm_param_name in ${{ toJson(inputs.parameters) }}; do
           param=${ssm_param_name%%:*}  # Extract SSM parameter (before the colon)
           custom_env_var=${ssm_param_name#*:}  # Extract custom env var (after the colon)
 
