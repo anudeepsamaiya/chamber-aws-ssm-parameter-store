@@ -1,8 +1,6 @@
 name: 'Setup Chamber and Fetch SSM Parameters'
 description: |
-  This GitHub Action sets up Chamber, retrieves AWS SSM parameters,
-  and populates them as environment variables for use in other steps.
-  AWS configuration is injected by the user or defaults to environment variables.
+  This Action sets up Chamber, retrieves AWS SSM parameters, and exports them as environment variables for use in workflows.
 
 inputs:
   parameters:
