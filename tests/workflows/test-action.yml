@@ -7,25 +7,18 @@ name: Local Test
 
 on:
   workflow_dispatch:
-    inputs:
-      aws_region:
-        description: 'AWS region'
-        required: false
-        default: 'us-east-1'
-      chamber_version:
-        description: 'Chamber version'
-        required: false
-        default: '2.10.12'
 
 env:
+  NODE_VERSION: '18'
   AWS_ACCESS_KEY_ID: test
   AWS_SECRET_ACCESS_KEY: test
-  AWS_REGION: ${{ github.event.inputs.aws_region || 'us-east-1' }}
+  AWS_REGION: 'us-east-1'
   TEST_PARAM_1: "/test-action/param1"
   TEST_PARAM_2: "/test-action/param2"
   TEST_VALUE_1: "value1"
   TEST_VALUE_2: "value2"
   DOCKER_ENV: true
+  CHAMBER_VERSION: "2.10.12"
 
 jobs:
   local-test:
@@ -40,13 +33,13 @@ jobs:
       - name: Start LocalStack and setup test parameters
         run: |
           echo "Starting LocalStack..."
-          docker compose up -d localstack
-
+          make docker-dev-env
+          
           # Wait for LocalStack
           echo "Waiting for LocalStack to be ready..."
           count=0
           max_attempts=20
-
+          
           while [ $count -lt $max_attempts ]; do
             if curl -s http://localhost:4566/health?services=ssm | grep -q '"ssm": "running"'; then
               echo "✅ LocalStack is ready!"
@@ -56,7 +49,7 @@ jobs:
             sleep 2
             count=$((count + 1))
           done
-
+          
           if [ $count -eq $max_attempts ]; then
             echo "::error::LocalStack did not start properly within timeout"
             exit 1
@@ -69,7 +62,7 @@ jobs:
           aws configure set output json
           aws configure set endpoint_url http://localhost:4566
 
-          # Create test parameters
+          # Create test parameters in LocalStack
           echo "Creating test parameters in LocalStack..."
           aws --endpoint-url=http://localhost:4566 ssm put-parameter \
             --name "$TEST_PARAM_1" --value "$TEST_VALUE_1" --type String --overwrite
@@ -79,25 +72,19 @@ jobs:
           # Verify parameters were created
           param1_value=$(aws --endpoint-url=http://localhost:4566 ssm get-parameter \
               --name "$TEST_PARAM_1" --query "Parameter.Value" --output text 2>/dev/null)
-
+          
           if [ "$param1_value" = "$TEST_VALUE_1" ]; then
             echo "✅ Test parameters created successfully!"
           else
             echo "::error::Failed to create test parameters"
             exit 1
           fi
-
+          
           echo "CHAMBER_AWS_SSM_ENDPOINT=http://localhost:4566" >> $GITHUB_ENV
 
       # Install Chamber
       - name: Install Chamber
-        run: |
-          CHAMBER_VERSION="${{ github.event.inputs.chamber_version || '2.10.12' }}"
-          mkdir -p /tmp/chamber
-          curl -sSL "https://github.com/segmentio/chamber/releases/download/v${CHAMBER_VERSION}/chamber-v${CHAMBER_VERSION}-linux-amd64" -o /tmp/chamber/chamber
-          chmod +x /tmp/chamber/chamber
-          sudo mv /tmp/chamber/chamber /usr/local/bin/chamber
-          chamber version
+        run: make install-chamber
 
       # Run the actual tests with all configurations
       - name: Run action tests
@@ -114,7 +101,7 @@ jobs:
             --aws-region "$AWS_REGION" \
             --aws-access-key-id "test" \
             --aws-secret-access-key "test" \
-            --chamber-version "${{ github.event.inputs.chamber_version || '2.10.12' }}"
+            --chamber-version "$CHAMBER_VERSION"
           
           if [ "$TEST_ACTION_PARAM1" != "value1" ]; then
             echo "❌ Namespaced test failed"
@@ -134,7 +121,7 @@ jobs:
             --aws-region "$AWS_REGION" \
             --aws-access-key-id "test" \
             --aws-secret-access-key "test" \
-            --chamber-version "${{ github.event.inputs.chamber_version || '2.10.12' }}"
+            --chamber-version "$CHAMBER_VERSION"
           
           if [ "$PARAM1" != "value1" ]; then
             echo "❌ Non-namespaced test failed"
@@ -154,7 +141,7 @@ jobs:
             --aws-region "$AWS_REGION" \
             --aws-access-key-id "test" \
             --aws-secret-access-key "test" \
-            --chamber-version "${{ github.event.inputs.chamber_version || '2.10.12' }}"
+            --chamber-version "$CHAMBER_VERSION"
           
           if [ "$CUSTOM_PARAM_1" != "value1" ]; then
             echo "❌ Custom mapping test failed"

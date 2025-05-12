@@ -2,18 +2,14 @@ name: Test Parameter Configurations
 
 on:
   push:
-    branches: [ main, squashed-patchwork ]
+    branches: [ main ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
-    inputs:
-      aws_region:
-        description: 'AWS region'
-        required: false
-        default: 'us-east-1'
 
 env:
-  AWS_REGION: ${{ github.event.inputs.aws_region || 'us-east-1' }}
+  NODE_VERSION: '18'
+  AWS_REGION: 'us-east-1'
   TEST_PARAM_1: "/test-action/param1"
   TEST_PARAM_2: "/test-action/param2"
   TEST_VALUE_1: "value1"
@@ -49,11 +45,11 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '18'
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
           
       - name: Install dependencies
-        run: npm ci
+        run: make setup
       
       # Verify LocalStack is ready and create test parameters
       - name: Verify LocalStack and create test parameters
