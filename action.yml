@@ -3,7 +3,7 @@ description: |
   This Action sets up Chamber, retrieves AWS SSM parameters, and exports them as environment variables for use in workflows.
 author: 'Anudeep Samaiya'
 branding:
-  icon: 'rocket'
+  icon: 'settings'
   color: 'blue'
 
 inputs:
