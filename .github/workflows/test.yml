@@ -1,0 +1,129 @@
+name: Test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  validate-action:
+    name: Validate action.yml
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: '16'
+      
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate action.yml
+        run: npm run validate
+
+  lint:
+    name: Run linters
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: '16'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: ESLint
+        run: npm run lint
+
+  unit-tests:
+    name: Run unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: '16'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test
+
+  # Run integration tests but skip actual AWS calls
+  integration-tests:
+    name: Run integration tests (mock AWS)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: '16'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run integration tests with AWS mocked
+        run: SKIP_AWS_TESTS=true npm run test:integration
+
+  # Test the actual action in GitHub environment
+  test-action:
+    name: Test GitHub Action
+    runs-on: ubuntu-latest
+    needs: [validate-action, lint, unit-tests]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+      
+      - name: Setup mock AWS environment with LocalStack
+        run: |
+          docker run -d --name localstack -p 4566:4566 -e SERVICES=ssm localstack/localstack:latest
+          # Wait for LocalStack to be ready
+          sleep 10
+          # Configure AWS CLI to use LocalStack
+          aws configure set aws_access_key_id test
+          aws configure set aws_secret_access_key test
+          aws configure set region us-east-1
+          aws configure set output json
+          aws configure set endpoint_url http://localhost:4566
+
+      - name: Create test parameters
+        run: |
+          export TEST_PARAM_1="/test-action/param1"
+          export TEST_PARAM_2="/test-action/param2"
+          export TEST_VALUE_1="value1"
+          export TEST_VALUE_2="value2"
+
+          aws --endpoint-url=http://localhost:4566 ssm put-parameter --name "$TEST_PARAM_1" --value "$TEST_VALUE_1" --type String --overwrite
+          aws --endpoint-url=http://localhost:4566 ssm put-parameter --name "$TEST_PARAM_2" --value "$TEST_VALUE_2" --type String --overwrite
+
+      - name: Test action functionality (basic)
+        uses: ./
+        with:
+          parameters:
+            - "/test-action/param1"
+            - "/test-action/param2"
+          namespaced: 'true'
+          aws-region: 'us-east-1'
+          aws-access-key-id: 'test'
+          aws-secret-access-key: 'test'
+
+      - name: Clean up
+        run: docker stop localstack
