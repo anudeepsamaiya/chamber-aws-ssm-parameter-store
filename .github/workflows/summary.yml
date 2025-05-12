@@ -3,11 +3,8 @@ name: Test Summary
 on:
   workflow_run:
     workflows:
-      - Validate
-      - Lint
-      - Unit Tests
-      - Integration Tests
-      - Test Parameter Configurations
+      - Code Quality
+      - Functional Tests
     types:
       - completed
 

@@ -1,4 +1,4 @@
-name: Test Parameter Configurations
+name: Functional Tests
 
 on:
   push:
@@ -14,10 +14,48 @@ env:
   TEST_PARAM_2: "/test-action/param2"
   TEST_VALUE_1: "value1"
   TEST_VALUE_2: "value2"
+  AWS_ACCESS_KEY_ID: test
+  AWS_SECRET_ACCESS_KEY: test
 
 jobs:
-  parameter-configs:
-    name: Test Parameter Configurations
+  # Unit Tests - Fast tests that don't need LocalStack
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: make setup
+        
+      - name: Run unit tests
+        id: unit_tests
+        run: npm run test:unit
+      
+      - name: Upload test coverage
+        if: success()
+        uses: actions/upload-artifact@v3
+        with:
+          name: unit-test-coverage
+          path: coverage/
+          retention-days: 5
+      
+      - name: Generate test summary
+        if: always()
+        run: |
+          echo "## Unit Tests Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Unit Tests**: ${{ steps.unit_tests.outcome || 'Unknown' }}" >> $GITHUB_STEP_SUMMARY
+
+  # Integration & Configuration Tests - These need LocalStack
+  integration-and-config:
+    name: Integration & Configuration Tests
     runs-on: ubuntu-latest
     services:
       localstack:
@@ -34,8 +72,6 @@ jobs:
           --health-retries 5
           --health-start-period 10s
     env:
-      AWS_ACCESS_KEY_ID: test
-      AWS_SECRET_ACCESS_KEY: test
       CHAMBER_AWS_SSM_ENDPOINT: http://localhost:4566
       DOCKER_ENV: "true"
     steps:
@@ -91,7 +127,12 @@ jobs:
             echo "::error::Failed to create test parameters"
             exit 1
           fi
-
+      
+      # Run integration tests
+      - name: Run integration tests
+        id: integration_tests
+        run: npm run test:integration
+      
       # Test 1: Namespaced parameters
       - name: Test namespaced parameters
         id: namespaced_test
@@ -155,10 +196,15 @@ jobs:
           fi
           echo "✅ Custom parameter mapping test passed!"
 
+      # Generate a comprehensive test summary for all the tests run in this job
       - name: Generate test summary
         if: always()
         run: |
-          echo "## Parameter Configuration Tests Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## Integration & Configuration Tests Summary" >> $GITHUB_STEP_SUMMARY
+          echo "### Integration Tests" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ${{ steps.integration_tests.outcome || 'Unknown' }}" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Parameter Configuration Tests" >> $GITHUB_STEP_SUMMARY
           echo "- **Namespaced Parameters**: ${{ steps.namespaced_test.outcome || 'Unknown' }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Non-namespaced Parameters**: ${{ steps.non_namespaced_test.outcome || 'Unknown' }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Custom Parameter Mappings**: ${{ steps.custom_mapping_test.outcome || 'Unknown' }}" >> $GITHUB_STEP_SUMMARY

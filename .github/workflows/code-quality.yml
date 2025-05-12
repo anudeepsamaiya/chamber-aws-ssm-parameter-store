@@ -1,4 +1,4 @@
-name: Lint
+name: Code Quality
 
 on:
   push:
@@ -11,8 +11,34 @@ env:
   NODE_VERSION: '18'
 
 jobs:
+  validate:
+    name: Validate Action Config
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: make setup
+        
+      - name: Validate action.yml
+        id: validate
+        run: npm run validate
+      
+      - name: Generate validation summary
+        if: always()
+        run: |
+          echo "## Validation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Action Config**: ${{ steps.validate.outcome || 'Unknown' }}" >> $GITHUB_STEP_SUMMARY
+          
   lint:
-    name: Lint
+    name: Lint Code
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
