@@ -5,51 +5,44 @@
 # 2. test-runner - Runs the tests against the LocalStack environment
 
 services:
-  # LocalStack service - Provides AWS service simulation without requiring real AWS account
+  # LocalStack service
   localstack:
     image: localstack/localstack:latest
     ports:
-      - "4566:4566"  # LocalStack API endpoint port
+      - "4566:4566"
     environment:
-      - SERVICES=ssm  # Only enable SSM service to keep container lightweight
-      - DEBUG=1  # Enable debug logging for easier troubleshooting
-      - DATA_DIR=/tmp/localstack/data  # Data persistence location
+      - SERVICES=ssm
+      - DEBUG=1
+      - DATA_DIR=/tmp/localstack/data
     volumes:
-      - ./test-data:/tmp/localstack/data  # Persist LocalStack data between runs
-      - ./test-scripts:/docker-entrypoint-initaws.d  # Initialization scripts
+      - ./test-data:/tmp/localstack/data
+      - ./test-scripts:/docker-entrypoint-initaws.d
     healthcheck:
-      # Ensure SSM service is ready before allowing dependent containers to start
       test: ["CMD", "curl", "-f", "http://localhost:4566/health?services=ssm"]
       interval: 3s
       timeout: 5s
       retries: 10
 
-  # Test runner service - Executes tests against LocalStack
+  # Test runner service
   test-runner:
-    image: node:18-alpine  # Lightweight Node.js image
+    image: node:18-alpine
     working_dir: /app
     volumes:
-      - .:/app  # Mount the project directory into the container
+      - .:/app
     environment:
-      # Credentials for LocalStack (values don't matter, but must be present)
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
       - AWS_DEFAULT_REGION=us-east-1
-      # Configure Chamber to use LocalStack endpoint instead of real AWS
       - CHAMBER_AWS_SSM_ENDPOINT=http://localstack:4566
-      # Flag used by tests to detect Docker environment
       - DOCKER_ENV=true
     depends_on:
-      - localstack  # Ensure LocalStack is running before starting tests
+      - localstack
     command: >
       sh -c "
-        # Install required tools for testing
         apk add --no-cache curl bash aws-cli jq &&
-        # Wait for LocalStack SSM service to be fully ready
         until curl -s http://localstack:4566/health?services=ssm | grep -q '\"ssm\": \"running\"'; do
           sleep 1;
         done &&
-        # Create test parameters in LocalStack SSM for integration tests
         aws --endpoint-url=http://localstack:4566 ssm put-parameter --name '/test-action/param1' --value 'value1' --type String &&
         aws --endpoint-url=http://localstack:4566 ssm put-parameter --name '/test-action/param2' --value 'value2' --type String
       "

@@ -211,18 +211,6 @@ make lint              # Run ESLint
 make validate          # Validate action.yml format
 ```
 
-### Pre-commit Hooks
-
-The repository includes pre-commit hooks that automatically run linting and tests in Docker:
-
-```bash
-npm install  # Installs husky and configures pre-commit hooks
-```
-
-When you commit changes, the pre-commit hook will:
-1. Start Docker containers if they're not running
-2. Run ESLint inside the test-runner container
-3. Run unit tests inside the test-runner container
 
 ## License
 

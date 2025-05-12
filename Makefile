@@ -8,11 +8,11 @@
 .PHONY: setup test test-unit test-integration lint validate clean help docker-dev-env ensure-lock
 
 # Variables for tool commands
-DOCKER ?= docker  # Docker command (can be overridden)
-NPM ?= npm        # NPM command (can be overridden)
-CHAMBER_VERSION ?= 2.10.12  # Default Chamber version to install
+DOCKER ?= docker
+NPM ?= npm
+CHAMBER_VERSION ?= 2.10.12
 
-# Default target when 'make' is run without arguments
+# Default target
 .DEFAULT_GOAL := help
 
 # Help information
@@ -46,28 +46,25 @@ ensure-lock:
 	fi
 
 # Run all tests using Docker (units and integration tests)
-# This target starts Docker containers, runs all tests, then cleans up
 test:
-	$(DOCKER) compose up -d  # Start LocalStack and test-runner containers
+	$(DOCKER) compose up -d
 	@echo "Running all tests in Docker container..."
-	$(DOCKER) compose exec test-runner npm run test:all  # Run all test suites
-	$(DOCKER) compose down  # Stop and remove containers when done
+	$(DOCKER) compose exec test-runner npm run test:all
+	$(DOCKER) compose down
 
 # Run unit tests using Docker
-# Unit tests focus on parameter mapping logic without requiring AWS connectivity
 test-unit:
-	$(DOCKER) compose up -d  # Start containers
+	$(DOCKER) compose up -d
 	@echo "Running unit tests in Docker container..."
-	$(DOCKER) compose exec test-runner npm test  # Run only unit tests
-	$(DOCKER) compose down  # Stop and remove containers
+	$(DOCKER) compose exec test-runner npm test
+	$(DOCKER) compose down
 
 # Run integration tests using Docker with LocalStack
-# Integration tests verify behavior with a simulated AWS SSM environment
 test-integration:
-	$(DOCKER) compose up -d  # Start LocalStack and test container
+	$(DOCKER) compose up -d
 	@echo "Running integration tests in Docker container with LocalStack..."
-	$(DOCKER) compose exec test-runner npm run test:integration  # Run only integration tests
-	$(DOCKER) compose down  # Stop and remove containers
+	$(DOCKER) compose exec test-runner npm run test:integration
+	$(DOCKER) compose down
 
 # Run linters using Docker
 lint:
@@ -91,9 +88,8 @@ validate:
 	$(DOCKER) compose down
 
 # Start Docker development environment with LocalStack
-# This creates a persistent development environment for interactive testing
 docker-dev-env:
-	$(DOCKER) compose up -d  # Start containers in detached mode
+	$(DOCKER) compose up -d
 	@echo "Development environment started"
 	@echo "LocalStack is available at: http://localhost:4566"
 	@echo "To access the test container shell: docker compose exec test-runner sh"
