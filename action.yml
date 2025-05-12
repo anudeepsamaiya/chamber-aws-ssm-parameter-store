@@ -1,6 +1,10 @@
 name: 'Setup Chamber and Fetch SSM Parameters'
 description: |
   This Action sets up Chamber, retrieves AWS SSM parameters, and exports them as environment variables for use in workflows.
+author: 'Anudeep Samaiya'
+branding:
+  icon: 'rocket'
+  color: 'blue'
 
 inputs:
   parameters:
