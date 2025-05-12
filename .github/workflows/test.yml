@@ -80,6 +80,11 @@ jobs:
           echo "Waiting for LocalStack to be ready..."
           sleep 10
 
+          # Set AWS environment variables
+          export AWS_ACCESS_KEY_ID=test
+          export AWS_SECRET_ACCESS_KEY=test
+          export AWS_DEFAULT_REGION=us-east-1
+
       - name: Create test parameters
         run: |
           export TEST_PARAM_1="/test-action/param1"
@@ -87,12 +92,19 @@ jobs:
           export TEST_VALUE_1="value1"
           export TEST_VALUE_2="value2"
 
-          aws --endpoint-url=http://localhost:4566 ssm put-parameter --name "$TEST_PARAM_1" --value "$TEST_VALUE_1" --type String --overwrite
-          aws --endpoint-url=http://localhost:4566 ssm put-parameter --name "$TEST_PARAM_2" --value "$TEST_VALUE_2" --type String --overwrite
+          # Configure AWS CLI
+          aws configure set aws_access_key_id test
+          aws configure set aws_secret_access_key test
+          aws configure set region us-east-1
+          aws configure set output json
+
+          # Set parameters in LocalStack
+          aws --endpoint-url=http://localhost:4566 --region us-east-1 ssm put-parameter --name "$TEST_PARAM_1" --value "$TEST_VALUE_1" --type String --overwrite
+          aws --endpoint-url=http://localhost:4566 --region us-east-1 ssm put-parameter --name "$TEST_PARAM_2" --value "$TEST_VALUE_2" --type String --overwrite
 
           # Verify parameters were created
-          aws --endpoint-url=http://localhost:4566 ssm get-parameter --name "$TEST_PARAM_1" || echo "Failed to create parameter $TEST_PARAM_1"
-          aws --endpoint-url=http://localhost:4566 ssm get-parameter --name "$TEST_PARAM_2" || echo "Failed to create parameter $TEST_PARAM_2"
+          aws --endpoint-url=http://localhost:4566 --region us-east-1 ssm get-parameter --name "$TEST_PARAM_1" || echo "Failed to create parameter $TEST_PARAM_1"
+          aws --endpoint-url=http://localhost:4566 --region us-east-1 ssm get-parameter --name "$TEST_PARAM_2" || echo "Failed to create parameter $TEST_PARAM_2"
 
       - name: Configure Chamber for LocalStack
         run: |
