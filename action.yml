@@ -103,8 +103,16 @@ runs:
 
           # Fetch parameter value using Chamber
           echo "Fetching parameter: $param"
-          value=$(chamber read "$param")
-          
+
+          # Split the SSM parameter path into service and key parts for Chamber
+          # Remove leading slash if present and get the first part as service name
+          service=$(echo "$param" | sed 's/^\///' | cut -d'/' -f1)
+          # Get everything after the service name as the key
+          key=$(echo "$param" | sed "s/^\/$service\///;s/^$service\///")
+
+          echo "Using Chamber to read service: $service, key: $key"
+          value=$(chamber read "$service" "$key")
+
           if [ $? -ne 0 ]; then
             echo "Error: Failed to fetch parameter $param"
             exit 1
