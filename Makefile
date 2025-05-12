@@ -1,13 +1,13 @@
 # Makefile for chamber-aws-ssm-parameter-store GitHub Action
 
-.PHONY: setup test test-unit test-integration lint validate clean help docker-test-env
+.PHONY: setup test test-unit test-integration lint validate clean help docker-test-env ensure-lock
 
 # Variables
 ACT ?= act
 DOCKER ?= docker
 NODE ?= node
 NPM ?= npm
-CHAMBER_VERSION ?= latest
+CHAMBER_VERSION ?= 2.10.12
 
 # Default target
 .DEFAULT_GOAL := help
@@ -23,14 +23,24 @@ help:
 	@echo "  test-integration   Run integration tests only"
 	@echo "  lint               Run linters"
 	@echo "  validate           Validate action.yml format"
+	@echo "  ensure-lock        Ensure package-lock.json exists"
 	@echo "  docker-test-env    Start a Docker container with AWS mock environment"
 	@echo "  local-action-test  Test the action locally using act"
 	@echo "  clean              Clean up temporary files"
 	@echo "  help               Display this help message"
 
 # Setup development environment
-setup:
+setup: ensure-lock
 	$(NPM) install
+
+# Ensure package-lock.json exists
+ensure-lock:
+	@if [ ! -f "package-lock.json" ]; then \
+		echo "Creating package-lock.json..."; \
+		$(NPM) install --package-lock-only; \
+	else \
+		echo "package-lock.json already exists"; \
+	fi
 
 # Run all tests
 test: test-unit test-integration

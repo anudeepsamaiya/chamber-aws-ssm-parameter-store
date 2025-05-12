@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       # Setup LocalStack for mocking AWS services
       - name: Setup LocalStack
@@ -43,10 +43,10 @@ jobs:
       # Install Chamber locally for testing
       - name: Install Chamber
         run: |
-          CHAMBER_VERSION="latest" # or specify a version
+          CHAMBER_VERSION="2.10.12" # using a specific stable version
           echo "Installing Chamber version $CHAMBER_VERSION..."
           mkdir -p /tmp/chamber
-          curl -sSL "https://github.com/segmentio/chamber/releases/download/v$CHAMBER_VERSION/chamber-v$CHAMBER_VERSION-linux-amd64" -o /tmp/chamber/chamber
+          curl -sSL "https://github.com/segmentio/chamber/releases/download/v${CHAMBER_VERSION}/chamber-v${CHAMBER_VERSION}-linux-amd64" -o /tmp/chamber/chamber
           chmod +x /tmp/chamber/chamber
           sudo mv /tmp/chamber/chamber /usr/local/bin/chamber
           chamber version
