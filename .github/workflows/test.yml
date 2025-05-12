@@ -117,7 +117,8 @@ jobs:
       - name: Setup environment for Chamber with LocalStack
         run: |
           # Configure Chamber to use LocalStack endpoint
-          echo "AWS_ENDPOINT=http://localhost:4566" >> $GITHUB_ENV
+          # The specific environment variable AWS_SSM_ENDPOINT is what Chamber uses
+          echo "AWS_SSM_ENDPOINT=http://localhost:4566" >> $GITHUB_ENV
           echo "AWS_ACCESS_KEY_ID=test" >> $GITHUB_ENV
           echo "AWS_SECRET_ACCESS_KEY=test" >> $GITHUB_ENV
           echo "AWS_REGION=us-east-1" >> $GITHUB_ENV
