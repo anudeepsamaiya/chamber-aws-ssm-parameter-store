@@ -2,28 +2,27 @@ name: Test
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
   pull_request:
-    branches:
-      - main
+    branches: [ main ]
   workflow_dispatch:
     inputs:
-      node_version:
-        description: 'Node.js version'
-        required: false
-        default: '18'
-        type: string
       aws_region:
         description: 'AWS region'
         required: false
         default: 'us-east-1'
-        type: string
+
+env:
+  AWS_REGION: ${{ github.event.inputs.aws_region || 'us-east-1' }}
+  TEST_PARAM_1: "/test-action/param1"
+  TEST_PARAM_2: "/test-action/param2"
+  TEST_VALUE_1: "value1"
+  TEST_VALUE_2: "value2"
 
 jobs:
-  # Setup Node.js and npm dependencies once
-  setup:
-    name: Setup Environment
+  # Basic validation and unit tests
+  unit-tests:
+    name: Validate & Unit Tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -32,25 +31,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: ${{ github.event.inputs.node_version || '18' }}
-          cache: 'npm'
-          
-      - name: Install dependencies
-        run: npm ci
-
-  # Validate the action.yml file format and structure
-  validate-action:
-    name: Validate action.yml
-    needs: setup
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-        
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: ${{ github.event.inputs.node_version || '18' }}
+          node-version: '18'
           cache: 'npm'
           
       - name: Install dependencies
@@ -58,71 +39,28 @@ jobs:
         
       - name: Validate action.yml
         run: |
-          echo "Validating action.yml format and structure..."
+          echo "Validating action.yml..."
           cat action.yml | node -e "
             try {
               const yaml = require('yaml');
               const content = require('fs').readFileSync(0, 'utf8');
               const parsedYaml = yaml.parse(content);
               
-              // Check required fields
               const requiredFields = ['name', 'description', 'runs'];
               for (const field of requiredFields) {
                 if (!parsedYaml[field]) {
                   throw new Error(`Missing required field '${field}' in action.yml`);
                 }
               }
-              
-              // Check inputs
-              if (!parsedYaml.inputs) {
-                console.warn('Warning: No inputs defined in action.yml');
-              }
-              
-              console.log('Action validation successful!');
+              console.log('✅ Action validation successful!');
             } catch (error) {
               console.error('Error validating action.yml:', error.message);
               process.exit(1);
             }
           "
-
-  # Run ESLint checks
-  lint:
-    name: Run linters
-    needs: setup
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-        
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: ${{ github.event.inputs.node_version || '18' }}
-          cache: 'npm'
-          
-      - name: Install dependencies
-        run: npm ci
-        
-      - name: Run ESLint
+      
+      - name: Run linters
         run: npm run lint
-
-  # Run unit tests
-  unit-tests:
-    name: Run unit tests
-    needs: setup
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-        
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: ${{ github.event.inputs.node_version || '18' }}
-          cache: 'npm'
-          
-      - name: Install dependencies
-        run: npm ci
         
       - name: Run unit tests
         run: npm run test:unit
@@ -135,87 +73,136 @@ jobs:
           path: coverage/
           retention-days: 5
 
-  # Run integration tests with LocalStack
+  # Integration tests with LocalStack testing all parameter configurations
   integration-tests:
-    name: Run integration tests with LocalStack
-    needs: setup
+    name: Integration & Configuration Tests
     runs-on: ubuntu-latest
-    # Setup LocalStack using reusable workflow
-    uses: ./.github/workflows/setup-localstack.yml
-    with:
-      wait_time: 30
-      max_retries: 10
-      aws_region: ${{ github.event.inputs.aws_region || 'us-east-1' }}
-
-  # Run actual integration tests after LocalStack is ready
-  run-integration-tests:
-    name: Execute integration tests
-    needs: integration-tests
-    if: needs.integration-tests.outputs.status == 'success' && needs.integration-tests.outputs.params_ready == 'true'
-    runs-on: ubuntu-latest
-    container:
-      # Use container-based job to ensure consistent environment
-      image: node:18
-      env:
-        AWS_ACCESS_KEY_ID: test
-        AWS_SECRET_ACCESS_KEY: test
-        AWS_REGION: ${{ github.event.inputs.aws_region || 'us-east-1' }}
-        CHAMBER_AWS_SSM_ENDPOINT: http://localhost:4566
-        DOCKER_ENV: true
+    needs: unit-tests
+    services:
+      localstack:
+        image: localstack/localstack:latest
+        env:
+          SERVICES: ssm
+          DEFAULT_REGION: ${{ env.AWS_REGION }}
+          DATA_DIR: /tmp/localstack/data
+        ports:
+          - 4566:4566
+        options: >-
+          --health-cmd "curl -s http://localhost:4566/health?services=ssm | grep -q '\"ssm\": \"running\"'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+          --health-start-period 10s
+    env:
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      CHAMBER_AWS_SSM_ENDPOINT: http://localhost:4566
+      DOCKER_ENV: "true"
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-
-      - name: Setup Node.js caching
-        uses: actions/cache@v3
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
         with:
-          path: ~/.npm
-          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-
-
+          node-version: '18'
+          cache: 'npm'
+          
       - name: Install dependencies
         run: npm ci
+      
+      # Create test parameters in LocalStack
+      - name: Create test parameters
+        run: |
+          echo "Creating test parameters in LocalStack..."
+          aws --endpoint-url=http://localhost:4566 ssm put-parameter \
+            --name "${{ env.TEST_PARAM_1 }}" --value "${{ env.TEST_VALUE_1 }}" --type String --overwrite
+          aws --endpoint-url=http://localhost:4566 ssm put-parameter \
+            --name "${{ env.TEST_PARAM_2 }}" --value "${{ env.TEST_VALUE_2 }}" --type String --overwrite
 
+          # Verify parameters were created
+          param1_value=$(aws --endpoint-url=http://localhost:4566 ssm get-parameter \
+              --name "${{ env.TEST_PARAM_1 }}" --query "Parameter.Value" --output text 2>/dev/null)
+          
+          if [ "$param1_value" = "${{ env.TEST_VALUE_1 }}" ]; then
+            echo "✅ Test parameters created successfully!"
+          else
+            echo "::error::Failed to create test parameters"
+            exit 1
+          fi
+      
+      # Run integration tests
       - name: Run integration tests
         run: npm run test:integration
 
-  # Test Action with different configurations (parallel jobs)
-  test-action-configs:
-    name: Test Action Configurations
-    needs: [validate-action, lint, unit-tests, run-integration-tests]
-    uses: ./.github/workflows/test-action-configs.yml
-    with:
-      aws_region: ${{ github.event.inputs.aws_region || 'us-east-1' }}
-      timeout: 10
+      # Test 1: Namespaced parameters
+      - name: Test namespaced parameters
+        id: namespaced_test
+        uses: ./
+        with:
+          parameters: |
+            ${{ env.TEST_PARAM_1 }}
+            ${{ env.TEST_PARAM_2 }}
+          namespaced: 'true'
+          aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
 
-  # Generate final report
-  report:
-    name: Test Report
-    runs-on: ubuntu-latest
-    needs: [integration-tests, run-integration-tests, test-action-configs]
-    if: always()
-    steps:
-      - name: Generate GitHub workflow report
+      - name: Verify namespaced parameters
         run: |
-          echo "## GitHub Action Test Report" >> $GITHUB_STEP_SUMMARY
-          echo "### Jobs Status" >> $GITHUB_STEP_SUMMARY
-          echo "- **Setup**: ${{ needs.setup.result || 'Did not run' }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Validate Action**: ${{ needs.validate-action.result || 'Did not run' }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Lint**: ${{ needs.lint.result || 'Did not run' }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Unit Tests**: ${{ needs.unit-tests.result || 'Did not run' }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **LocalStack Setup**: ${{ needs.integration-tests.result || 'Did not run' }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Integration Tests**: ${{ needs.run-integration-tests.result || 'Did not run' }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Action Configurations**: ${{ needs.test-action-configs.result || 'Did not run' }}" >> $GITHUB_STEP_SUMMARY
-
-          echo "### Test Summary" >> $GITHUB_STEP_SUMMARY
-          if [[ "${{ needs.validate-action.result }}" == "success" && \
-                "${{ needs.lint.result }}" == "success" && \
-                "${{ needs.unit-tests.result }}" == "success" && \
-                "${{ needs.integration-tests.result }}" == "success" && \
-                "${{ needs.run-integration-tests.result }}" == "success" && \
-                "${{ needs.test-action-configs.result }}" == "success" ]]; then
-            echo "✅ All tests passed successfully!" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "❌ Some tests failed or were skipped. See individual job results for details." >> $GITHUB_STEP_SUMMARY
+          if [ "$TEST_ACTION_PARAM1" != "${{ env.TEST_VALUE_1 }}" ]; then
+            echo "::error::Namespaced test failed: TEST_ACTION_PARAM1 = $TEST_ACTION_PARAM1, expected ${{ env.TEST_VALUE_1 }}"
+            exit 1
           fi
+          echo "✅ Namespaced parameter test passed!"
+
+      # Test 2: Non-namespaced parameters
+      - name: Test non-namespaced parameters
+        id: non_namespaced_test
+        uses: ./
+        with:
+          parameters: |
+            ${{ env.TEST_PARAM_1 }}
+            ${{ env.TEST_PARAM_2 }}
+          namespaced: 'false'
+          aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Verify non-namespaced parameters
+        run: |
+          if [ "$PARAM1" != "${{ env.TEST_VALUE_1 }}" ]; then
+            echo "::error::Non-namespaced test failed: PARAM1 = $PARAM1, expected ${{ env.TEST_VALUE_1 }}"
+            exit 1
+          fi
+          echo "✅ Non-namespaced parameter test passed!"
+
+      # Test 3: Custom parameter mappings
+      - name: Test custom parameter mappings
+        id: custom_mapping_test
+        uses: ./
+        with:
+          parameters: |
+            ${{ env.TEST_PARAM_1 }}:CUSTOM_PARAM_1
+            ${{ env.TEST_PARAM_2 }}:CUSTOM_PARAM_2
+          namespaced: 'true'
+          aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Verify custom parameter mappings
+        run: |
+          if [ "$CUSTOM_PARAM_1" != "${{ env.TEST_VALUE_1 }}" ]; then
+            echo "::error::Custom mapping test failed: CUSTOM_PARAM_1 = $CUSTOM_PARAM_1, expected ${{ env.TEST_VALUE_1 }}"
+            exit 1
+          fi
+          echo "✅ Custom parameter mapping test passed!"
+
+      - name: Generate test summary
+        if: always()
+        run: |
+          echo "## Integration & Configuration Tests Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Integration Tests**: ${{ steps.integration_tests?.outcome || 'Unknown' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Namespaced Parameters**: ${{ steps.namespaced_test?.outcome || 'Unknown' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Non-namespaced Parameters**: ${{ steps.non_namespaced_test?.outcome || 'Unknown' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Custom Parameter Mappings**: ${{ steps.custom_mapping_test?.outcome || 'Unknown' }}" >> $GITHUB_STEP_SUMMARY

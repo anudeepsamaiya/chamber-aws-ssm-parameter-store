@@ -4,41 +4,19 @@ services:
   # LocalStack service
   localstack:
     image: localstack/localstack:latest
+    container_name: localstack-test
     ports:
       - "4566:4566"
     environment:
       - SERVICES=ssm
+      - DEFAULT_REGION=us-east-1
       - DEBUG=1
       - DATA_DIR=/tmp/localstack/data
     volumes:
-      - ./test-data:/tmp/localstack/data
-      - ./test-scripts:/docker-entrypoint-initaws.d
+      - "/tmp/localstack:/tmp/localstack"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4566/health?services=ssm"]
+      test: "curl -s http://localhost:4566/health?services=ssm | grep -q '\"ssm\": \"running\"' || exit 1"
       interval: 3s
       timeout: 5s
       retries: 10
-
-  # Test runner service
-  test-runner:
-    image: node:18-alpine
-    working_dir: /app
-    volumes:
-      - .:/app
-    environment:
-      - AWS_ACCESS_KEY_ID=test
-      - AWS_SECRET_ACCESS_KEY=test
-      - AWS_DEFAULT_REGION=us-east-1
-      - CHAMBER_AWS_SSM_ENDPOINT=http://localstack:4566
-      - DOCKER_ENV=true
-    depends_on:
-      - localstack
-    command: >
-      sh -c "
-        apk add --no-cache curl bash aws-cli jq &&
-        until curl -s http://localstack:4566/health?services=ssm | grep -q '\"ssm\": \"running\"'; do
-          sleep 1;
-        done &&
-        aws --endpoint-url=http://localstack:4566 ssm put-parameter --name '/test-action/param1' --value 'value1' --type String &&
-        aws --endpoint-url=http://localstack:4566 ssm put-parameter --name '/test-action/param2' --value 'value2' --type String
-      "
+      start_period: 5s

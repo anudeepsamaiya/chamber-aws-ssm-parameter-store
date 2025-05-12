@@ -1,246 +1,155 @@
-name: Test Action Locally
+name: Local Test
 
 # This workflow is designed for local testing with 'act'
 # https://github.com/nektos/act
 #
-# Run with:
-# act -j test-action -W tests/workflows/test-action.yml
+# Run with: act -j local-test -W tests/workflows/test-action.yml
 
 on:
   workflow_dispatch:
     inputs:
       aws_region:
-        description: 'AWS Region for testing'
+        description: 'AWS region'
         required: false
         default: 'us-east-1'
-        type: string
-      timeout:
-        description: 'Timeout for waiting for LocalStack (seconds)'
-        required: false
-        default: '30'
-        type: number
       chamber_version:
-        description: 'Chamber version to use'
+        description: 'Chamber version'
         required: false
         default: '2.10.12'
-        type: string
 
 env:
+  AWS_ACCESS_KEY_ID: test
+  AWS_SECRET_ACCESS_KEY: test
+  AWS_REGION: ${{ github.event.inputs.aws_region || 'us-east-1' }}
   TEST_PARAM_1: "/test-action/param1"
   TEST_PARAM_2: "/test-action/param2"
   TEST_VALUE_1: "value1"
   TEST_VALUE_2: "value2"
-  AWS_ACCESS_KEY_ID: "test"
-  AWS_SECRET_ACCESS_KEY: "test"
-  AWS_REGION: ${{ github.event.inputs.aws_region || 'us-east-1' }}
-  DOCKER_ENV: "true"
+  DOCKER_ENV: true
 
 jobs:
-  test-action-locally:
-    name: Test Action with Local Setup
+  local-test:
+    name: Local Action Test
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # Use Node.js caching for faster local testing
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '18'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      # Combined step to start LocalStack and wait for it to be ready
-      - name: Setup LocalStack and create test parameters
-        id: localstack_setup
+      # Setup LocalStack with combined approach
+      - name: Start LocalStack and setup test parameters
         run: |
-          # Start the containers
-          echo "Starting LocalStack containers..."
+          echo "Starting LocalStack..."
           docker compose up -d localstack
 
-          # Initialize status variables
-          status="failure"
-          params_ready="false"
-
-          # Wait for LocalStack to be ready with progressive reporting
-          echo "Waiting for LocalStack to be ready (max ${{ github.event.inputs.timeout || 30 }} seconds)..."
-
-          timeout=${{ github.event.inputs.timeout || 30 }}
-          start_time=$(date +%s)
-          max_end_time=$((start_time + timeout))
-
-          attempt=0
-          max_attempts=15
-          sleep_time=$(( timeout / max_attempts ))
-
-          # Keep checking until it's ready or we time out
-          while [ $(date +%s) -lt $max_end_time ] && [ $attempt -lt $max_attempts ]; do
-            attempt=$((attempt + 1))
-
-            # Check if service is running
+          # Wait for LocalStack
+          echo "Waiting for LocalStack to be ready..."
+          attempts=0
+          max_attempts=10
+          
+          while [ $attempts -lt $max_attempts ]; do
             if curl -s http://localhost:4566/health?services=ssm | grep -q '"ssm": "running"'; then
-              echo "✅ LocalStack SSM service is ready!"
-              status="success"
+              echo "✅ LocalStack is ready!"
               break
             fi
-
-            # Display progress and check container logs if taking too long
-            if [ $attempt -eq $(( max_attempts / 2 )) ]; then
-              echo "Still waiting for LocalStack... checking container logs:"
-              docker compose logs localstack --tail 20
-            fi
-
-            echo "⏳ Waiting for LocalStack services... (Attempt $attempt/$max_attempts, elapsed: $(($(date +%s) - start_time))s)"
-            sleep $sleep_time
+            echo "Waiting for LocalStack... (attempt $(( attempts + 1 ))/$max_attempts)"
+            sleep 3
+            attempts=$((attempts + 1))
           done
 
-          # Final status check
-          if [ "$status" != "success" ]; then
-            echo "LocalStack failed to start properly within the timeout period"
-            echo "::warning::LocalStack services did not start properly. Container logs:"
-            docker compose logs localstack
-            echo "ready=false" >> $GITHUB_OUTPUT
-            exit 1
-          else
-            # Configure AWS CLI within the same step to ensure it happens in the same container
-            # and only if LocalStack is actually ready
-            echo "🔧 Configuring AWS CLI for LocalStack..."
-            aws configure set aws_access_key_id test
-            aws configure set aws_secret_access_key test
-            aws configure set region ${{ github.event.inputs.aws_region || 'us-east-1' }}
-            aws configure set output json
-            aws configure set endpoint_url http://localhost:4566
+          # Configure AWS CLI
+          aws configure set aws_access_key_id test
+          aws configure set aws_secret_access_key test
+          aws configure set region ${{ env.AWS_REGION }}
+          aws configure set output json
+          aws configure set endpoint_url http://localhost:4566
 
-            # Create test parameters in the same step
-            echo "Creating test parameters..."
-            aws --endpoint-url=http://localhost:4566 ssm put-parameter \
-              --name "$TEST_PARAM_1" --value "$TEST_VALUE_1" --type String --overwrite
-            aws --endpoint-url=http://localhost:4566 ssm put-parameter \
-              --name "$TEST_PARAM_2" --value "$TEST_VALUE_2" --type String --overwrite
+          # Create test parameters
+          aws --endpoint-url=http://localhost:4566 ssm put-parameter \
+            --name "$TEST_PARAM_1" --value "$TEST_VALUE_1" --type String --overwrite
+          aws --endpoint-url=http://localhost:4566 ssm put-parameter \
+            --name "$TEST_PARAM_2" --value "$TEST_VALUE_2" --type String --overwrite
 
-            # Verify parameters were created
-            echo "Verifying parameters..."
-            param1_value=$(aws --endpoint-url=http://localhost:4566 ssm get-parameter \
-              --name "$TEST_PARAM_1" --query "Parameter.Value" --output text)
-            param2_value=$(aws --endpoint-url=http://localhost:4566 ssm get-parameter \
-              --name "$TEST_PARAM_2" --query "Parameter.Value" --output text)
+          echo "CHAMBER_AWS_SSM_ENDPOINT=http://localhost:4566" >> $GITHUB_ENV
 
-            if [ "$param1_value" = "$TEST_VALUE_1" ] && [ "$param2_value" = "$TEST_VALUE_2" ]; then
-              echo "✅ Test parameters verified successfully!"
-              params_ready="true"
-            else
-              echo "::error::Failed to create or verify test parameters"
-              params_ready="false"
-            fi
-
-            echo "Parameter values: $param1_value, $param2_value"
-
-            # Set chamber endpoint for GitHub env
-            echo "CHAMBER_AWS_SSM_ENDPOINT=http://localhost:4566" >> $GITHUB_ENV
-            echo "ready=true" >> $GITHUB_OUTPUT
-          fi
-
-      # Install Chamber locally for testing
+      # Install Chamber
       - name: Install Chamber
         run: |
           CHAMBER_VERSION="${{ github.event.inputs.chamber_version || '2.10.12' }}"
-          echo "Installing Chamber version $CHAMBER_VERSION..."
           mkdir -p /tmp/chamber
           curl -sSL "https://github.com/segmentio/chamber/releases/download/v${CHAMBER_VERSION}/chamber-v${CHAMBER_VERSION}-linux-amd64" -o /tmp/chamber/chamber
           chmod +x /tmp/chamber/chamber
           sudo mv /tmp/chamber/chamber /usr/local/bin/chamber
           chamber version
 
-      # Test 1: Namespaced parameters
-      - name: Test with namespaced parameters
-        uses: ./
-        with:
-          parameters: |
-            ${{ env.TEST_PARAM_1 }}
-            ${{ env.TEST_PARAM_2 }}
-          namespaced: 'true'
-          aws-region: ${{ env.AWS_REGION }}
-          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
-          chamber_version: ${{ github.event.inputs.chamber_version || '2.10.12' }}
-
-      - name: Verify namespaced parameters
+      # Run the actual tests with all configurations
+      - name: Run action tests
         run: |
-          echo "Verifying namespaced parameters..."
-          if [ "$TEST_ACTION_PARAM1" != "$TEST_VALUE_1" ]; then
-            echo "::error::Expected TEST_ACTION_PARAM1 to be '$TEST_VALUE_1', got '$TEST_ACTION_PARAM1'"
+          echo "=========================================="
+          echo "Testing namespaced parameters (default)..."
+          echo "=========================================="
+          
+          # Test namespaced parameters
+          ./node_modules/.bin/ts-node src/main.ts \
+            --parameters "/test-action/param1
+                          /test-action/param2" \
+            --namespaced "true" \
+            --aws-region "$AWS_REGION" \
+            --aws-access-key-id "test" \
+            --aws-secret-access-key "test" \
+            --chamber-version "${{ github.event.inputs.chamber_version || '2.10.12' }}"
+          
+          if [ "$TEST_ACTION_PARAM1" != "value1" ]; then
+            echo "❌ Namespaced test failed"
             exit 1
           fi
-          echo "✅ Namespaced parameter test passed!"
-
-      # Test 2: Non-namespaced parameters
-      - name: Test with non-namespaced parameters
-        uses: ./
-        with:
-          parameters: |
-            ${{ env.TEST_PARAM_1 }}
-            ${{ env.TEST_PARAM_2 }}
-          namespaced: 'false'
-          aws-region: ${{ env.AWS_REGION }}
-          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
-          chamber_version: ${{ github.event.inputs.chamber_version || '2.10.12' }}
-
-      - name: Verify non-namespaced parameters
-        run: |
-          echo "Verifying non-namespaced parameters..."
-          if [ "$PARAM1" != "$TEST_VALUE_1" ]; then
-            echo "::error::Expected PARAM1 to be '$TEST_VALUE_1', got '$PARAM1'"
+          echo "✅ Namespaced parameter test passed"
+          
+          echo "=========================================="
+          echo "Testing non-namespaced parameters..."
+          echo "=========================================="
+          
+          # Test non-namespaced parameters
+          ./node_modules/.bin/ts-node src/main.ts \
+            --parameters "/test-action/param1
+                          /test-action/param2" \
+            --namespaced "false" \
+            --aws-region "$AWS_REGION" \
+            --aws-access-key-id "test" \
+            --aws-secret-access-key "test" \
+            --chamber-version "${{ github.event.inputs.chamber_version || '2.10.12' }}"
+          
+          if [ "$PARAM1" != "value1" ]; then
+            echo "❌ Non-namespaced test failed"
             exit 1
           fi
-          echo "✅ Non-namespaced parameter test passed!"
-
-      # Test 3: Custom parameter mappings
-      - name: Test with custom parameter mappings
-        uses: ./
-        with:
-          parameters: |
-            ${{ env.TEST_PARAM_1 }}:CUSTOM_PARAM_1
-            ${{ env.TEST_PARAM_2 }}:CUSTOM_PARAM_2
-          namespaced: 'true'
-          aws-region: ${{ env.AWS_REGION }}
-          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
-          chamber_version: ${{ github.event.inputs.chamber_version || '2.10.12' }}
-
-      - name: Verify custom parameter mappings
-        run: |
-          echo "Verifying custom parameter mappings..."
-          if [ "$CUSTOM_PARAM_1" != "$TEST_VALUE_1" ]; then
-            echo "::error::Expected CUSTOM_PARAM_1 to be '$TEST_VALUE_1', got '$CUSTOM_PARAM_1'"
+          echo "✅ Non-namespaced parameter test passed"
+          
+          echo "=========================================="
+          echo "Testing custom parameter mappings..."
+          echo "=========================================="
+          
+          # Test custom parameter mappings
+          ./node_modules/.bin/ts-node src/main.ts \
+            --parameters "/test-action/param1:CUSTOM_PARAM_1
+                          /test-action/param2:CUSTOM_PARAM_2" \
+            --namespaced "true" \
+            --aws-region "$AWS_REGION" \
+            --aws-access-key-id "test" \
+            --aws-secret-access-key "test" \
+            --chamber-version "${{ github.event.inputs.chamber_version || '2.10.12' }}"
+          
+          if [ "$CUSTOM_PARAM_1" != "value1" ]; then
+            echo "❌ Custom mapping test failed"
             exit 1
           fi
-          echo "✅ Custom parameter mapping test passed!"
+          echo "✅ Custom parameter mapping test passed"
+          
+          echo "=========================================="
+          echo "🎉 All tests passed successfully!"
+          echo "=========================================="
 
-      - name: Test summary
-        run: |
-          echo "## Action Local Test Summary" >> $GITHUB_STEP_SUMMARY
-          echo "### Test Results" >> $GITHUB_STEP_SUMMARY
-          echo "- **LocalStack Setup**: ✅" >> $GITHUB_STEP_SUMMARY
-          echo "- **Namespaced parameters**: ✅" >> $GITHUB_STEP_SUMMARY
-          echo "- **Non-namespaced parameters**: ✅" >> $GITHUB_STEP_SUMMARY
-          echo "- **Custom parameter mappings**: ✅" >> $GITHUB_STEP_SUMMARY
-
-          echo "### Configuration" >> $GITHUB_STEP_SUMMARY
-          echo "- **AWS Region**: ${{ github.event.inputs.aws_region || 'us-east-1' }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Chamber Version**: ${{ github.event.inputs.chamber_version || '2.10.12' }}" >> $GITHUB_STEP_SUMMARY
-
-          echo "All tests completed successfully!"
-          echo "- Namespaced parameters: ✅"
-          echo "- Non-namespaced parameters: ✅"
-          echo "- Custom parameter mappings: ✅"
-
-      - name: Clean up
+      # Clean up
+      - name: Clean up resources
         if: always()
-        run: |
-          echo "Cleaning up resources..."
-          docker compose down || true
+        run: docker compose down
