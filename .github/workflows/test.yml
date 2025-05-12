@@ -92,12 +92,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
       
-      - name: Setup mock AWS environment with LocalStack
+      - name: Setup LocalStack for testing
         run: |
-          docker run -d --name localstack -p 4566:4566 -e SERVICES=ssm localstack/localstack:latest
-          # Wait for LocalStack to be ready
-          sleep 10
-          # Configure AWS CLI to use LocalStack
+          docker compose up -d localstack
+          until curl -s http://localhost:4566/health?services=ssm | grep -q '"ssm": "running"'; do
+            sleep 1
+          done
           aws configure set aws_access_key_id test
           aws configure set aws_secret_access_key test
           aws configure set region us-east-1
@@ -114,10 +114,9 @@ jobs:
           aws --endpoint-url=http://localhost:4566 ssm put-parameter --name "$TEST_PARAM_1" --value "$TEST_VALUE_1" --type String --overwrite
           aws --endpoint-url=http://localhost:4566 ssm put-parameter --name "$TEST_PARAM_2" --value "$TEST_VALUE_2" --type String --overwrite
 
-      - name: Setup environment for Chamber with LocalStack
+      - name: Configure Chamber for LocalStack
         run: |
-          # Configure Chamber to use LocalStack endpoint
-          # CHAMBER_AWS_SSM_ENDPOINT is the specific environment variable Chamber uses for SSM endpoint
+          # Set Chamber-specific environment variable for SSM endpoint
           echo "CHAMBER_AWS_SSM_ENDPOINT=http://localhost:4566" >> $GITHUB_ENV
           echo "AWS_ACCESS_KEY_ID=test" >> $GITHUB_ENV
           echo "AWS_SECRET_ACCESS_KEY=test" >> $GITHUB_ENV
@@ -135,4 +134,4 @@ jobs:
           aws-secret-access-key: 'test'
 
       - name: Clean up
-        run: docker stop localstack
+        run: docker compose down

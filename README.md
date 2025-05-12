@@ -3,16 +3,14 @@
 [![Test](https://github.com/anudeepsamaiya/chamber-aws-ssm-parameter-store/actions/workflows/test.yml/badge.svg)](https://github.com/anudeepsamaiya/chamber-aws-ssm-parameter-store/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-This GitHub Action sets up [Chamber](https://github.com/segmentio/chamber), retrieves AWS SSM parameters, and exports them as environment variables in your workflow. It helps you securely manage and use parameters such as database credentials, API keys, or other secrets within your CI/CD pipeline.
+GitHub Action that securely retrieves AWS SSM parameters using [Chamber](https://github.com/segmentio/chamber) and exports them as environment variables in your workflow.
 
-## Overview
+## Features
 
-By utilizing Chamber, this action securely retrieves SSM parameters and makes them available as environment variables in your workflow. Features include:
-
-- **Automatic Chamber Installation**: Installs Chamber if not already available
-- **Flexible Parameter Naming**: Map SSM parameters to custom environment variable names
-- **Namespace Control**: Choose whether to include the parameter path in variable names
-- **Seamless AWS Integration**: Works with standard AWS credential configurations
+- Automatic Chamber installation
+- Custom environment variable mappings
+- Namespace control for parameters
+- Works with standard AWS credential configurations
 
 ## Inputs
 
@@ -176,41 +174,25 @@ The action supports various ways of providing AWS credentials:
 
 ## Development
 
-### Setting Up
+### Requirements
+
+- Docker and Docker Compose
+- Node.js 18+
+
+### Quick Start
 
 ```bash
-# Clone the repository
 git clone https://github.com/anudeepsamaiya/chamber-aws-ssm-parameter-store.git
 cd chamber-aws-ssm-parameter-store
-
-# Install dependencies
-npm install
+make test       # Run unit tests
 ```
 
 ### Testing
 
-The project includes unit tests and integration tests:
-
 ```bash
-# Run unit tests
-npm test
-
-# Run integration tests with mocked AWS
-SKIP_AWS_TESTS=true npm run test:integration
-
-# Test with LocalStack (AWS simulation)
-make docker-test-env
-```
-
-### Common Tasks
-
-Use the Makefile for common development tasks:
-
-```bash
-make help        # Show available commands
-make lint        # Run linters
-make validate    # Validate action.yml format
-make test        # Run all tests
+make test              # Run unit tests in Docker
+make lint              # Run ESLint
+make validate          # Validate action.yml format
 ```
 
 ## License
