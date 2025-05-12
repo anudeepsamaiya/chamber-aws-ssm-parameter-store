@@ -2,73 +2,52 @@
  * Unit tests for parameter mapping functionality
  */
 
-const fs = require('fs');
-const path = require('path');
-const { execSync } = require('child_process');
-const sinon = require('sinon');
-
 // Helper function to get the expected environment variable name
 function getExpectedEnvName(paramPath, isNamespaced, customName = '') {
   if (customName) return customName;
 
   if (isNamespaced) {
     // Extract namespace (first part after removing leading slash)
-    const namespace = paramPath.replace(/^\//, '').split('/')[0].toUpperCase();
+    const namespace = paramPath.replace(/^\//, '').split('/')[0].toUpperCase()
+      .replace(/-/g, '_');
     
     // Get parameter name (last part after the last slash)
-    const paramName = paramPath.split('/').pop().toUpperCase();
+    const paramName = paramPath.split('/').pop().toUpperCase()
+      .replace(/-/g, '_');
     
     return `${namespace}_${paramName}`;
   } else {
     // Just the parameter name (last part after the last slash)
-    return paramPath.split('/').pop().toUpperCase();
+    return paramPath.split('/').pop().toUpperCase()
+      .replace(/-/g, '_');
   }
 }
 
-describe('Parameter Mapping Tests', () => {
-  // Create a temporary test script that simulates the action's parameter mapping logic
-  const testScriptPath = path.join(__dirname, '..', 'fixtures', 'test-mapping.sh');
+// Helper function to simulate the parameter mapping from action.yml
+function mapParameterName(paramPath, isNamespaced, customName = '') {
+  // If custom name is provided and not using namespacing, use custom name
+  if (customName && !isNamespaced) {
+    return customName;
+  }
   
-  beforeAll(() => {
-    // Create a test script that simulates the parameter mapping logic from action.yml
-    const testScript = `
-#!/bin/bash
-
-# Function to simulate parameter mapping
-map_param() {
-  local param=$1
-  local is_namespaced=$2
-  local custom_env_var=$3
-
-  # Extract the prefix (namespace) from the parameter (first part before the slash)
-  prefix=$(echo "$param" | sed 's|/||' | cut -d'/' -f1 | tr 'a-z' 'A-Z')
+  // Extract the prefix (namespace) from the parameter (first part after removing leading slash)
+  const prefix = paramPath.replace(/^\//, '').split('/')[0].toUpperCase()
+    .replace(/-/g, '_');
   
-  # Extract param name (last part after the last slash)
-  param_name=$(echo "$param" | sed 's|.*/||' | tr 'a-z' 'A-Z')
-
-  # Handle custom logic similar to action.yml
-  if [[ "$is_namespaced" == "false" && -n "$custom_env_var" ]]; then
-    echo "$custom_env_var"
-  elif [[ "$is_namespaced" == "false" ]]; then
-    echo "$param_name"
-  else
-    echo "${prefix}_${param_name}"
-  fi
+  // Extract param name (last part after the last slash)
+  const paramName = paramPath.split('/').pop().toUpperCase()
+    .replace(/-/g, '_');
+  
+  // If not using namespacing, just use the parameter name
+  if (!isNamespaced) {
+    return paramName;
+  }
+  
+  // Otherwise, use namespace + parameter name
+  return `${prefix}_${paramName}`;
 }
 
-# Export the function
-export -f map_param
-`;
-
-    // Create the test script
-    fs.writeFileSync(testScriptPath, testScript, { mode: 0o755 });
-  });
-
-  afterAll(() => {
-    // Clean up the test script
-    fs.unlinkSync(testScriptPath);
-  });
-
+describe('Parameter Mapping Tests', () => {
   test('should map parameters with namespacing', () => {
     const testCases = [
       { param: '/my-app/db-password', expected: 'MY_APP_DB_PASSWORD' },
@@ -77,8 +56,7 @@ export -f map_param
     ];
 
     testCases.forEach(({ param, expected }) => {
-      const result = execSync(`source ${testScriptPath} && map_param "${param}" "true" ""`, 
-                             { shell: '/bin/bash' }).toString().trim();
+      const result = mapParameterName(param, true, '');
       expect(result).toBe(expected);
     });
   });
@@ -91,8 +69,7 @@ export -f map_param
     ];
 
     testCases.forEach(({ param, expected }) => {
-      const result = execSync(`source ${testScriptPath} && map_param "${param}" "false" ""`, 
-                             { shell: '/bin/bash' }).toString().trim();
+      const result = mapParameterName(param, false, '');
       expect(result).toBe(expected);
     });
   });
@@ -104,8 +81,7 @@ export -f map_param
     ];
 
     testCases.forEach(({ param, custom, expected }) => {
-      const result = execSync(`source ${testScriptPath} && map_param "${param}" "false" "${custom}"`, 
-                             { shell: '/bin/bash' }).toString().trim();
+      const result = mapParameterName(param, false, custom);
       expect(result).toBe(expected);
     });
   });
@@ -120,6 +96,20 @@ export -f map_param
     testCases.forEach(({ param, namespaced, custom, expected }) => {
       const result = getExpectedEnvName(param, namespaced, custom);
       expect(result).toBe(expected);
+    });
+  });
+
+  test('should match behavior between both helper functions', () => {
+    const testCases = [
+      { param: '/my-app/db-password', namespaced: true, custom: '' },
+      { param: '/my-app/db-password', namespaced: false, custom: '' },
+      { param: '/my-app/db-password', namespaced: false, custom: 'CUSTOM_NAME' }
+    ];
+
+    testCases.forEach(({ param, namespaced, custom }) => {
+      const result1 = getExpectedEnvName(param, namespaced, custom);
+      const result2 = mapParameterName(param, namespaced, custom);
+      expect(result1).toBe(result2);
     });
   });
 });
