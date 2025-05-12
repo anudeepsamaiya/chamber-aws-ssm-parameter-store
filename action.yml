@@ -64,9 +64,12 @@ runs:
           # Extract the prefix (namespace) from the parameter (first part before the slash)
           prefix=$(echo "$param" | sed 's|/||' | cut -d'/' -f1 | tr 'a-z' 'A-Z')
 
-          param_name="${custom_env_var:-$(echo "$param" | sed 's|/[^/]*$||' | tr '/' '_')}"
-          param_name="${param_name//\//_}"
-          param_name="${{ inputs.namespaced == 'false' && custom_env_var != '' && param_name || "${prefix}_$param_name" }}"
+          # Handle custom logic in shell
+          if [[ "${{ inputs.namespaced }}" == "false" && -n "$custom_env_var" ]]; then
+            param_name="$custom_env_var"
+          else
+            param_name="${prefix}_$(echo "$param" | sed 's|/[^/]*$||' | tr '/' '_')"
+          fi
 
           # Export the parameter to the environment
           echo "$param_name=$value" >> $GITHUB_ENV
