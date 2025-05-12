@@ -8,7 +8,8 @@
     "test:integration": "jest --config jest.integration.config.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "validate": "node -e \"console.log('Action validation would run here')\" && cat action.yml"
+    "validate": "node -e \"console.log('Action validation would run here')\" && cat action.yml",
+    "postinstall": "node -e \"console.log('Ensuring package-lock.json exists')\""
   },
   "repository": {
     "type": "git",
@@ -36,5 +37,9 @@
     "jest": "^29.0.0",
     "jest-environment-node": "^29.0.0",
     "sinon": "^15.0.0"
-  }
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "packageManager": "npm@10.2.3"
 }
