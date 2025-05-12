@@ -114,6 +114,14 @@ jobs:
           aws --endpoint-url=http://localhost:4566 ssm put-parameter --name "$TEST_PARAM_1" --value "$TEST_VALUE_1" --type String --overwrite
           aws --endpoint-url=http://localhost:4566 ssm put-parameter --name "$TEST_PARAM_2" --value "$TEST_VALUE_2" --type String --overwrite
 
+      - name: Setup environment for Chamber with LocalStack
+        run: |
+          # Configure Chamber to use LocalStack endpoint
+          echo "AWS_ENDPOINT=http://localhost:4566" >> $GITHUB_ENV
+          echo "AWS_ACCESS_KEY_ID=test" >> $GITHUB_ENV
+          echo "AWS_SECRET_ACCESS_KEY=test" >> $GITHUB_ENV
+          echo "AWS_REGION=us-east-1" >> $GITHUB_ENV
+
       - name: Test action functionality (basic)
         uses: ./
         with:

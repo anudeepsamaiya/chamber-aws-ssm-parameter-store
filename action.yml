@@ -111,7 +111,9 @@ runs:
           key=$(echo "$param" | sed "s/^\/$service\///;s/^$service\///")
 
           echo "Using Chamber to read service: $service, key: $key"
-          value=$(chamber read "$service" "$key")
+
+          # Use Chamber to read parameter - explicitly setting SSM backend
+          value=$(chamber --backend ssm read "$service" "$key")
 
           if [ $? -ne 0 ]; then
             echo "Error: Failed to fetch parameter $param"
