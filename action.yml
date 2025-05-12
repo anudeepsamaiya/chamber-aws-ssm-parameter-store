@@ -1,10 +1,9 @@
 name: 'Setup Chamber and Fetch SSM Parameters'
-description: |
-  This Action sets up Chamber, retrieves AWS SSM parameters, and exports them as environment variables for use in workflows.
+description: 'Retrieves AWS SSM parameters using Chamber and exports them as environment variables with namespace and custom name support.'
 author: 'Anudeep Samaiya'
 branding:
   icon: 'settings'
-  color: 'blue'
+  color: 'orange'
 
 inputs:
   parameters:
@@ -27,7 +26,7 @@ inputs:
   aws-secret-access-key:
     description: 'AWS secret access key'
     required: false
-    
+
   chamber_version:
     description: 'Version of Chamber to install. If not specified, defaults to 2.10.12.'
     required: false
@@ -47,95 +46,66 @@ runs:
       shell: bash
       run: |
         CHAMBER_VERSION="${{ inputs.chamber_version || env.CHAMBER_VERSION || '2.10.12' }}"
-        
-        # Check if Chamber is installed
+
         if ! command -v chamber &> /dev/null; then
-          echo "Chamber not found, installing version $CHAMBER_VERSION..."
-          
-          # Create a temporary directory for download
           mkdir -p /tmp/chamber
-          
-          # Handle 'latest' version by getting the latest release tag
+
           if [[ "$CHAMBER_VERSION" == "latest" ]]; then
-            echo "Finding latest Chamber release..."
             RELEASES_URL="https://api.github.com/repos/segmentio/chamber/releases/latest"
             LATEST_TAG=$(curl -s $RELEASES_URL | grep -Po '"tag_name": "\K[^"]*')
-            if [[ -n "$LATEST_TAG" ]]; then
-              # Remove 'v' prefix if present
-              CHAMBER_VERSION=${LATEST_TAG#v}
-              echo "Latest Chamber version is $CHAMBER_VERSION"
-            else
-              echo "Failed to determine latest version, falling back to default 2.10.12"
-              CHAMBER_VERSION="2.10.12"
-            fi
+            [[ -n "$LATEST_TAG" ]] && CHAMBER_VERSION=${LATEST_TAG#v} || CHAMBER_VERSION="2.10.12"
           fi
-          
-          # Download Chamber
+
           DOWNLOAD_URL="https://github.com/segmentio/chamber/releases/download/v${CHAMBER_VERSION}/chamber-v${CHAMBER_VERSION}-linux-amd64"
-          echo "Downloading Chamber from $DOWNLOAD_URL"
           curl -sSL "$DOWNLOAD_URL" -o /tmp/chamber/chamber
           chmod +x /tmp/chamber/chamber
           sudo mv /tmp/chamber/chamber /usr/local/bin/chamber
-          
-          # Verify installation
-          echo "Chamber installed:"
           chamber version || echo "Warning: Chamber was installed but version check failed"
         else
-          echo "Chamber is already installed:"
           chamber version
         fi
 
     - name: Fetch and set SSM parameters as env variables
       shell: bash
       run: |
-        # Process each parameter from the multi-line input
         echo "${{ inputs.parameters }}" | while IFS= read -r ssm_param_name || [[ -n "$ssm_param_name" ]]; do
-          # Skip empty lines
           [[ -z "$ssm_param_name" ]] && continue
-          
-          param=${ssm_param_name%%:*}  # Extract SSM parameter (before the colon)
-          custom_env_var=${ssm_param_name#*:}  # Extract custom env var (after the colon)
-          
-          # Check if there's a custom env var mapping (contains a colon)
-          if [[ "$param" == "$custom_env_var" ]]; then
-            custom_env_var=""
-          fi
 
-          # Fetch parameter value using Chamber
+              # Extract parameter path and optional custom name (format: /path/to/param:CUSTOM_NAME)
+          param=${ssm_param_name%%:*}            # Everything before colon - SSM parameter path
+          custom_env_var=${ssm_param_name#*:}    # Everything after colon - custom env var name
+          [[ "$param" == "$custom_env_var" ]] && custom_env_var=""  # If no colon, clear custom name
+
           echo "Fetching parameter: $param"
 
-          # Split the SSM parameter path into service and key parts for Chamber
-          # Remove leading slash if present and get the first part as service name
-          service=$(echo "$param" | sed 's/^\///' | cut -d'/' -f1)
-          # Get everything after the service name as the key
-          key=$(echo "$param" | sed "s/^\/$service\///;s/^$service\///")
+          # Split parameter path into service and key format required by Chamber
+          service=$(echo "$param" | sed 's/^\///' | cut -d'/' -f1)  # First part after leading slash
+          key=$(echo "$param" | sed "s/^\/$service\///;s/^$service\///")  # Everything after service
 
-          echo "Using Chamber to read service: $service, key: $key"
-
-          # Use Chamber to read parameter
-          value=$(chamber read "$service" "$key")
-
+          # Fetch the parameter value using Chamber with quiet flag (value only)
+          value=$(chamber read -q "$service" "$key")
           if [ $? -ne 0 ]; then
             echo "Error: Failed to fetch parameter $param"
             exit 1
           fi
 
-          # Extract the prefix (namespace) from the parameter (first part before the slash)
-          prefix=$(echo "$param" | sed 's|^/||' | cut -d'/' -f1 | tr 'a-z' 'A-Z' | tr '-' '_')
-          
-          # Extract parameter name (last part after the last slash)
-          param_name=$(echo "$param" | sed 's|.*/||' | tr 'a-z' 'A-Z' | tr '-' '_')
+          # Transform SSM parameter path to environment variable name
+          prefix=$(echo "$param" | sed 's|^/||' | cut -d'/' -f1 | tr 'a-z' 'A-Z' | tr '-' '_')  # First path segment
+          param_name=$(echo "$param" | sed 's|.*/||' | tr 'a-z' 'A-Z' | tr '-' '_')  # Last path segment
 
-          # Handle custom logic in shell
+          # Determine final environment variable name based on options
           if [[ "${{ inputs.namespaced }}" == "false" && -n "$custom_env_var" ]]; then
+            # Custom name takes precedence when provided
             env_name="$custom_env_var"
           elif [[ "${{ inputs.namespaced }}" == "false" ]]; then
+            # Non-namespaced mode: use only parameter name
             env_name="$param_name"
           else
+            # Namespaced mode (default): prefix_parameter_name
             env_name="${prefix}_${param_name}"
           fi
 
-          # Export the parameter to the environment
+          # Export the parameter to GitHub environment
           echo "Setting parameter $param as $env_name"
           echo "$env_name=$value" >> $GITHUB_ENV
         done

@@ -2,7 +2,9 @@
  * Unit tests for parameter mapping functionality
  */
 
-// Helper function to get the expected environment variable name
+/**
+ * Helper function to get the expected environment variable name
+ */
 function getExpectedEnvName(paramPath, isNamespaced, customName = '') {
   if (customName) return customName;
 
@@ -10,11 +12,11 @@ function getExpectedEnvName(paramPath, isNamespaced, customName = '') {
     // Extract namespace (first part after removing leading slash)
     const namespace = paramPath.replace(/^\//, '').split('/')[0].toUpperCase()
       .replace(/-/g, '_');
-    
+
     // Get parameter name (last part after the last slash)
     const paramName = paramPath.split('/').pop().toUpperCase()
       .replace(/-/g, '_');
-    
+
     return `${namespace}_${paramName}`;
   } else {
     // Just the parameter name (last part after the last slash)
@@ -23,14 +25,16 @@ function getExpectedEnvName(paramPath, isNamespaced, customName = '') {
   }
 }
 
-// Helper function to simulate the parameter mapping from action.yml
+/**
+ * Simulate parameter mapping from action.yml
+ */
 function mapParameterName(paramPath, isNamespaced, customName = '') {
   // If custom name is provided and not using namespacing, use custom name
   if (customName && !isNamespaced) {
     return customName;
   }
   
-  // Extract the prefix (namespace) from the parameter (first part after removing leading slash)
+  // Extract the prefix (namespace) from the parameter
   const prefix = paramPath.replace(/^\//, '').split('/')[0].toUpperCase()
     .replace(/-/g, '_');
   
@@ -47,6 +51,9 @@ function mapParameterName(paramPath, isNamespaced, customName = '') {
   return `${prefix}_${paramName}`;
 }
 
+/**
+ * Test suite for Parameter Mapping
+ */
 describe('Parameter Mapping Tests', () => {
   test('should map parameters with namespacing', () => {
     const testCases = [

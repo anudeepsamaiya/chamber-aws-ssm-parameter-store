@@ -1,11 +1,14 @@
 # Makefile for chamber-aws-ssm-parameter-store GitHub Action
+#
+# This Makefile provides common development and testing commands for the project.
+# It primarily uses Docker for testing to ensure a consistent environment and
+# to enable integration testing with LocalStack for AWS service simulation.
 
-.PHONY: setup test test-unit test-integration lint validate clean help docker-test-env ensure-lock
+# Mark all targets as phony (not representing files)
+.PHONY: setup test test-unit test-integration lint validate clean help docker-dev-env ensure-lock
 
-# Variables
-ACT ?= act
+# Variables for tool commands
 DOCKER ?= docker
-NODE ?= node
 NPM ?= npm
 CHAMBER_VERSION ?= 2.10.12
 
@@ -24,7 +27,7 @@ help:
 	@echo "  lint               Run linters"
 	@echo "  validate           Validate action.yml format"
 	@echo "  ensure-lock        Ensure package-lock.json exists"
-	@echo "  docker-test-env    Start a Docker container with AWS mock environment"
+	@echo "  docker-dev-env     Start interactive Docker development environment with LocalStack"
 	@echo "  local-action-test  Test the action locally using act"
 	@echo "  clean              Clean up temporary files"
 	@echo "  help               Display this help message"
@@ -42,37 +45,55 @@ ensure-lock:
 		echo "package-lock.json already exists"; \
 	fi
 
-# Run all tests
-test: test-unit test-integration
+# Run all tests using Docker (units and integration tests)
+test:
+	$(DOCKER) compose up -d
+	@echo "Running all tests in Docker container..."
+	$(DOCKER) compose exec test-runner npm run test:all
+	$(DOCKER) compose down
 
-# Run unit tests
+# Run unit tests using Docker
 test-unit:
-	$(NPM) test
+	$(DOCKER) compose up -d
+	@echo "Running unit tests in Docker container..."
+	$(DOCKER) compose exec test-runner npm test
+	$(DOCKER) compose down
 
-# Run integration tests with AWS mocked
+# Run integration tests using Docker with LocalStack
 test-integration:
-	SKIP_AWS_TESTS=true $(NPM) run test:integration
+	$(DOCKER) compose up -d
+	@echo "Running integration tests in Docker container with LocalStack..."
+	$(DOCKER) compose exec test-runner npm run test:integration
+	$(DOCKER) compose down
 
-# Run linters
+# Run linters using Docker
 lint:
-	$(NPM) run lint
+	$(DOCKER) compose up -d
+	@echo "Running linters in Docker container..."
+	$(DOCKER) compose exec test-runner npm run lint
+	$(DOCKER) compose down
 
-# Fix linting issues
+# Fix linting issues using Docker
 lint-fix:
-	$(NPM) run lint:fix
+	$(DOCKER) compose up -d
+	@echo "Fixing linting issues in Docker container..."
+	$(DOCKER) compose exec test-runner npm run lint:fix
+	$(DOCKER) compose down
 
-# Validate action.yml
+# Validate action.yml using Docker
 validate:
-	$(NPM) run validate
+	$(DOCKER) compose up -d
+	@echo "Validating action.yml in Docker container..."
+	$(DOCKER) compose exec test-runner npm run validate
+	$(DOCKER) compose down
 
-# Start Docker container with LocalStack for testing
-docker-test-env:
-	$(DOCKER) run -d --name localstack -p 4566:4566 -e SERVICES=ssm localstack/localstack:latest
-	@echo "LocalStack is starting up..."
-	@sleep 5
-	@echo "Configure AWS CLI with: aws configure set endpoint_url http://localhost:4566"
-	@echo "Test parameters with: aws --endpoint-url=http://localhost:4566 ssm put-parameter --name \"/test/param\" --value \"test-value\" --type String"
-	@echo "Stop container with: docker stop localstack && docker rm localstack"
+# Start Docker development environment with LocalStack
+docker-dev-env:
+	$(DOCKER) compose up -d
+	@echo "Development environment started"
+	@echo "LocalStack is available at: http://localhost:4566"
+	@echo "To access the test container shell: docker compose exec test-runner sh"
+	@echo "To stop the environment: docker compose down"
 
 # Test GitHub Action locally using act
 local-action-test:

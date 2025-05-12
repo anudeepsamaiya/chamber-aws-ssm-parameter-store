@@ -6,6 +6,7 @@
   "scripts": {
     "test": "jest",
     "test:integration": "jest --config jest.integration.config.js",
+    "test:all": "npm test && npm run test:integration",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "validate": "node -e \"console.log('Action validation would run here')\" && cat action.yml",

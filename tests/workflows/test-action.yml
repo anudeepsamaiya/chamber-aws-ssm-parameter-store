@@ -18,13 +18,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # Setup LocalStack for mocking AWS services
       - name: Setup LocalStack
         run: |
-          docker run -d --name localstack -p 4566:4566 -e SERVICES=ssm localstack/localstack:latest
-          # Wait for LocalStack to be ready
-          sleep 10
-          # Configure AWS CLI to use LocalStack
+          docker compose up -d localstack
+          until curl -s http://localhost:4566/health?services=ssm | grep -q '"ssm": "running"'; do
+            sleep 1
+          done
           aws configure set aws_access_key_id test
           aws configure set aws_secret_access_key test
           aws configure set region us-east-1
@@ -127,4 +126,4 @@ jobs:
           echo "Custom mapping test passed!"
 
       - name: Clean up
-        run: docker stop localstack
+        run: docker compose down
