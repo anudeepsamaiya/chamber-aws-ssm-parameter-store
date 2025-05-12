@@ -17,16 +17,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v3
+      - name: Setup Docker Compose
+        uses: isbang/compose-action@v1.5.1
         with:
-          node-version: '18'
-      
-      - name: Install dependencies
-        run: npm install
+          compose-file: "./docker-compose.yml"
 
       - name: Validate action.yml
-        run: npm run validate
+        run: docker compose exec -T test-runner npm run validate
+
+      - name: Clean up
+        if: always()
+        run: docker compose down
 
   lint:
     name: Run linters
@@ -35,16 +36,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v3
+      - name: Setup Docker Compose
+        uses: isbang/compose-action@v1.5.1
         with:
-          node-version: '18'
+          compose-file: "./docker-compose.yml"
 
-      - name: Install dependencies
-        run: npm install
+      - name: Run ESLint
+        run: docker compose exec -T test-runner npm run lint
 
-      - name: ESLint
-        run: npm run lint
+      - name: Clean up
+        if: always()
+        run: docker compose down
 
   unit-tests:
     name: Run unit tests
@@ -53,35 +55,47 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v3
+      - name: Setup Docker Compose
+        uses: isbang/compose-action@v1.5.1
         with:
-          node-version: '18'
-
-      - name: Install dependencies
-        run: npm install
+          compose-file: "./docker-compose.yml"
 
       - name: Run unit tests
-        run: npm test
+        run: docker compose exec -T test-runner npm test
 
-  # Run integration tests but skip actual AWS calls
+      - name: Clean up
+        if: always()
+        run: docker compose down
+
+  # Run integration tests with LocalStack
   integration-tests:
-    name: Run integration tests (mock AWS)
+    name: Run integration tests with LocalStack
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v3
+      - name: Setup Docker Compose
+        uses: isbang/compose-action@v1.5.1
         with:
-          node-version: '18'
+          compose-file: "./docker-compose.yml"
+          services: |
+            localstack
+            test-runner
+            test-runner
 
-      - name: Install dependencies
-        run: npm install
+      - name: Wait for LocalStack
+        run: |
+          until curl -s http://localhost:4566/health?services=ssm | grep -q '"ssm": "running"'; do
+            sleep 1
+          done
 
-      - name: Run integration tests with AWS mocked
-        run: SKIP_AWS_TESTS=true npm run test:integration
+      - name: Run integration tests with LocalStack
+        run: docker compose exec -T test-runner npm run test:integration
+
+      - name: Clean up
+        if: always()
+        run: docker compose down
 
   # Test the actual action in GitHub environment
   test-action:
@@ -92,9 +106,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
       
-      - name: Setup LocalStack for testing
+      - name: Setup Docker Compose
+        uses: isbang/compose-action@v1.5.1
+        with:
+          compose-file: "./docker-compose.yml"
+          services: |
+            localstack
+            test-runner
+
+      - name: Wait for LocalStack
         run: |
-          docker compose up -d localstack
           until curl -s http://localhost:4566/health?services=ssm | grep -q '"ssm": "running"'; do
             sleep 1
           done
@@ -134,4 +155,5 @@ jobs:
           aws-secret-access-key: 'test'
 
       - name: Clean up
+        if: always()
         run: docker compose down

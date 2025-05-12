@@ -3,7 +3,7 @@ description: 'Retrieves AWS SSM parameters using Chamber and exports them as env
 author: 'Anudeep Samaiya'
 branding:
   icon: 'settings'
-  color: 'blue'
+  color: 'orange'
 
 inputs:
   parameters:
@@ -26,7 +26,7 @@ inputs:
   aws-secret-access-key:
     description: 'AWS secret access key'
     required: false
-    
+
   chamber_version:
     description: 'Version of Chamber to install. If not specified, defaults to 2.10.12.'
     required: false
@@ -71,31 +71,41 @@ runs:
         echo "${{ inputs.parameters }}" | while IFS= read -r ssm_param_name || [[ -n "$ssm_param_name" ]]; do
           [[ -z "$ssm_param_name" ]] && continue
 
-              param=${ssm_param_name%%:*}
-          custom_env_var=${ssm_param_name#*:}
-          [[ "$param" == "$custom_env_var" ]] && custom_env_var=""
+              # Extract parameter path and optional custom name (format: /path/to/param:CUSTOM_NAME)
+          param=${ssm_param_name%%:*}            # Everything before colon - SSM parameter path
+          custom_env_var=${ssm_param_name#*:}    # Everything after colon - custom env var name
+          [[ "$param" == "$custom_env_var" ]] && custom_env_var=""  # If no colon, clear custom name
 
           echo "Fetching parameter: $param"
 
-          service=$(echo "$param" | sed 's/^\///' | cut -d'/' -f1)
-          key=$(echo "$param" | sed "s/^\/$service\///;s/^$service\///")
+          # Split parameter path into service and key format required by Chamber
+          service=$(echo "$param" | sed 's/^\///' | cut -d'/' -f1)  # First part after leading slash
+          key=$(echo "$param" | sed "s/^\/$service\///;s/^$service\///")  # Everything after service
 
+          # Fetch the parameter value using Chamber with quiet flag (value only)
           value=$(chamber read -q "$service" "$key")
           if [ $? -ne 0 ]; then
             echo "Error: Failed to fetch parameter $param"
             exit 1
           fi
 
-          prefix=$(echo "$param" | sed 's|^/||' | cut -d'/' -f1 | tr 'a-z' 'A-Z' | tr '-' '_')
-          param_name=$(echo "$param" | sed 's|.*/||' | tr 'a-z' 'A-Z' | tr '-' '_')
+          # Transform SSM parameter path to environment variable name
+          prefix=$(echo "$param" | sed 's|^/||' | cut -d'/' -f1 | tr 'a-z' 'A-Z' | tr '-' '_')  # First path segment
+          param_name=$(echo "$param" | sed 's|.*/||' | tr 'a-z' 'A-Z' | tr '-' '_')  # Last path segment
+
+          # Determine final environment variable name based on options
           if [[ "${{ inputs.namespaced }}" == "false" && -n "$custom_env_var" ]]; then
+            # Custom name takes precedence when provided
             env_name="$custom_env_var"
           elif [[ "${{ inputs.namespaced }}" == "false" ]]; then
+            # Non-namespaced mode: use only parameter name
             env_name="$param_name"
           else
+            # Namespaced mode (default): prefix_parameter_name
             env_name="${prefix}_${param_name}"
           fi
 
+          # Export the parameter to GitHub environment
           echo "Setting parameter $param as $env_name"
           echo "$env_name=$value" >> $GITHUB_ENV
         done

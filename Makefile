@@ -1,13 +1,18 @@
 # Makefile for chamber-aws-ssm-parameter-store GitHub Action
+#
+# This Makefile provides common development and testing commands for the project.
+# It primarily uses Docker for testing to ensure a consistent environment and
+# to enable integration testing with LocalStack for AWS service simulation.
 
+# Mark all targets as phony (not representing files)
 .PHONY: setup test test-unit test-integration lint validate clean help docker-dev-env ensure-lock
 
-# Variables
-DOCKER ?= docker
-NPM ?= npm
-CHAMBER_VERSION ?= 2.10.12
+# Variables for tool commands
+DOCKER ?= docker  # Docker command (can be overridden)
+NPM ?= npm        # NPM command (can be overridden)
+CHAMBER_VERSION ?= 2.10.12  # Default Chamber version to install
 
-# Default target
+# Default target when 'make' is run without arguments
 .DEFAULT_GOAL := help
 
 # Help information
@@ -40,26 +45,29 @@ ensure-lock:
 		echo "package-lock.json already exists"; \
 	fi
 
-# Run all tests using Docker (run only unit tests for now)
+# Run all tests using Docker (units and integration tests)
+# This target starts Docker containers, runs all tests, then cleans up
 test:
-	$(DOCKER) compose up -d
-	@echo "Running tests in Docker container..."
-	$(DOCKER) compose exec test-runner npm test
-	$(DOCKER) compose down
+	$(DOCKER) compose up -d  # Start LocalStack and test-runner containers
+	@echo "Running all tests in Docker container..."
+	$(DOCKER) compose exec test-runner npm run test:all  # Run all test suites
+	$(DOCKER) compose down  # Stop and remove containers when done
 
 # Run unit tests using Docker
+# Unit tests focus on parameter mapping logic without requiring AWS connectivity
 test-unit:
-	$(DOCKER) compose up -d
+	$(DOCKER) compose up -d  # Start containers
 	@echo "Running unit tests in Docker container..."
-	$(DOCKER) compose exec test-runner npm test
-	$(DOCKER) compose down
+	$(DOCKER) compose exec test-runner npm test  # Run only unit tests
+	$(DOCKER) compose down  # Stop and remove containers
 
 # Run integration tests using Docker with LocalStack
+# Integration tests verify behavior with a simulated AWS SSM environment
 test-integration:
-	$(DOCKER) compose up -d
+	$(DOCKER) compose up -d  # Start LocalStack and test container
 	@echo "Running integration tests in Docker container with LocalStack..."
-	$(DOCKER) compose exec test-runner npm run test:integration
-	$(DOCKER) compose down
+	$(DOCKER) compose exec test-runner npm run test:integration  # Run only integration tests
+	$(DOCKER) compose down  # Stop and remove containers
 
 # Run linters using Docker
 lint:
@@ -83,8 +91,9 @@ validate:
 	$(DOCKER) compose down
 
 # Start Docker development environment with LocalStack
+# This creates a persistent development environment for interactive testing
 docker-dev-env:
-	$(DOCKER) compose up -d
+	$(DOCKER) compose up -d  # Start containers in detached mode
 	@echo "Development environment started"
 	@echo "LocalStack is available at: http://localhost:4566"
 	@echo "To access the test container shell: docker compose exec test-runner sh"
