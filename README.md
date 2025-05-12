@@ -1,223 +1,179 @@
-# **Setup Chamber and Fetch SSM Parameters GitHub Action**
+# Setup Chamber and Fetch AWS SSM Parameters
 
-# chamber-aws-ssm-parameter-store
-This GitHub Action sets up **Chamber**, retrieves AWS **SSM parameters**, and exports them as environment variables in your workflow. It helps you securely manage and use AWS SSM parameters like database credentials, API keys, or other secrets within your CI/CD pipeline. You can also customize how parameters are mapped to environment variables.
+This GitHub Action sets up [Chamber](https://github.com/segmentio/chamber), retrieves AWS SSM parameters, and exports them as environment variables in your workflow. It helps you securely manage and use parameters such as database credentials, API keys, or other secrets within your CI/CD pipeline.
 
-## **Overview**
+## Overview
 
-This GitHub Action allows you to easily integrate **AWS SSM** parameters into your workflows. By utilizing **Chamber**, it retrieves SSM parameters, and you can choose how to name the environment variables. The action also supports **namespacing**, where you can have environment variables prefixed by their SSM parameter path, or you can opt for a simpler name that only uses the parameter's name.
+By utilizing Chamber, this action securely retrieves SSM parameters and makes them available as environment variables in your workflow. Features include:
 
-You can inject AWS credentials directly via environment variables or GitHub secrets, and the action will handle setting up **Chamber** for you automatically.
+- **Automatic Chamber Installation**: Installs Chamber if not already available
+- **Flexible Parameter Naming**: Map SSM parameters to custom environment variable names
+- **Namespace Control**: Choose whether to include the parameter path in variable names
+- **Seamless AWS Integration**: Works with standard AWS credential configurations
 
----
+## Inputs
 
-## **Features**
+| **Input**               | **Description**                                                                                   | **Required** | **Default**                 |
+| ----------------------- | ------------------------------------------------------------------------------------------------- | ------------ | --------------------------- |
+| `parameters`            | List of SSM parameters with optional custom mappings (e.g., `/my-app/db-password:MY_DB_PASSWORD`) | Yes          | N/A                         |
+| `namespaced`            | Include namespace from parameter path in variable name (`true`/`false`)                           | No           | `true`                      |
+| `aws-region`            | AWS region for SSM parameters                                                                     | No           | `us-east-1`                 |
+| `aws-access-key-id`     | AWS access key ID                                                                                 | No           | (via environment variables) |
+| `aws-secret-access-key` | AWS secret access key                                                                             | No           | (via environment variables) |
+| `chamber_version`       | Chamber version to install (`2.10.12`, `latest`, etc.)                                            | No           | `2.10.12`                   |
 
-* **Automatic Chamber Setup**: If **Chamber** is not already installed, the action will automatically download and install the required version.
-* **Fetch SSM Parameters**: Fetch SSM parameters from AWS Parameter Store securely using **Chamber**.
-* **Environment Variable Export**: The fetched parameters are automatically exported as environment variables in your workflow.
-* **Customizable Namespacing**: You can choose to add a prefix (namespace) to environment variables or just use the parameter name.
-* **Flexible Custom Mappings**: Map SSM parameter names to custom environment variable names.
-* **AWS Credential Handling**: AWS credentials can be configured either through the GitHub environment or by directly passing them as inputs.
+## Parameter Naming
 
----
+How parameters are mapped to environment variable names:
 
-## **Inputs**
+### With Namespacing (`namespaced: true`):
 
-| **Input**               | **Description**                                                                                                                                             | **Required** | **Default**                 |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ | --------------------------- |
-| `parameters`            | List of SSM parameters with optional custom environment variable mappings (e.g., `"/my-app/db-password:MY_DB_PASSWORD"`).                                   | Yes          | N/A                         |
-| `namespaced`            | Determines if the environment variable will include the namespace from the parameter path. `true` uses the namespace, `false` uses just the parameter name. | No           | `true`                      |
-| `aws-region`            | AWS region where your SSM parameters are stored.                                                                                                            | No           | `us-east-1`                 |
-| `aws-access-key-id`     | AWS access key ID for authentication.                                                                                                                       | No           | (via environment variables) |
-| `aws-secret-access-key` | AWS secret access key for authentication.                                                                                                                   | No           | (via environment variables) |
-| `chamber_version`       | Version of **Chamber** to install. If not specified, defaults to `latest`.                                                                                  | No           | `latest`                    |
+- Parameter `/my-app/db-password` → Environment variable `MY_APP_DB_PASSWORD`
+- Parameter `/service/api-key` → Environment variable `SERVICE_API_KEY`
 
----
+### Without Namespacing (`namespaced: false`):
 
-## **What This Action Does for You**
+- Parameter `/my-app/db-password` → Environment variable `DB_PASSWORD`
+- Parameter `/service/api-key` → Environment variable `API_KEY`
 
-### **1. Fetch AWS SSM Parameters**
+### Custom Names:
 
-This action retrieves your SSM parameters securely from **AWS SSM Parameter Store**. You simply provide a list of parameters to fetch, and the action will use **Chamber** to retrieve them.
+- Parameter `/my-app/db-password:CUSTOM_NAME` → Environment variable `CUSTOM_NAME`
 
-For example, if you specify `/my-app/db-password`, it will fetch the corresponding value from AWS SSM.
+## Usage Examples
 
-### **2. Export Parameters as Environment Variables**
-
-Once the parameters are fetched, the action automatically exports them as environment variables for use in subsequent steps in your GitHub Actions workflow. These parameters can then be used by other steps in your CI/CD pipeline, such as deploying your app or connecting to databases.
-
-### **3. Namespacing Control**
-
-You can control how your parameters are exported:
-
-* **Namespaced**: If `namespaced: true`, the environment variables will be prefixed by the first part of the parameter's path (e.g., `MY_APP_DB_PASSWORD` for the parameter `/my-app/db-password`).
-* **Non-namespaced**: If `namespaced: false`, the environment variable will use only the parameter name (e.g., `DB_PASSWORD`).
-
-This allows you to control how the variables are named based on your needs or naming conventions.
-
-### **4. Custom Environment Variable Names**
-
-If needed, you can specify custom names for each parameter's corresponding environment variable. For example, you can fetch `/my-app/db-password` from SSM and map it to an environment variable like `MY_DB_PASSWORD`.
-
-### **5. Seamless AWS Credential Handling**
-
-AWS credentials are required to fetch parameters from AWS SSM. This action supports:
-
-* **AWS Credentials via GitHub Secrets**: If you're using **GitHub secrets** to store your credentials, the action will automatically use them (via the `aws-access-key-id` and `aws-secret-access-key` inputs, or through the environment variables `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_REGION`).
-* **AWS Credential Setup Action**: We recommend using the [**`aws-actions/configure-aws-credentials`**](https://github.com/aws-actions/configure-aws-credentials) GitHub Action for securely configuring your AWS credentials in your workflows.
-
----
-
-## **How to Use the Action**
-
-Below are examples of how you can integrate this action into your GitHub workflows.
-
-### **Basic Example (Namespaced Variables)**
-
-This example fetches the SSM parameters `/my-app/db-password` and `/another-service/api-key` and exports them as environment variables with namespaces:
+### Basic Usage
 
 ```yaml
-name: Fetch SSM Parameters
-
-on:
-  push:
-    branches:
-      - main
-
-jobs:
-  fetch-parameters:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
-
-      - name: Fetch SSM Parameters and Set as Env Vars
-        uses: anudeepsamaiya/chamber-aws-ssm-parameter-store@v1
-        with:
-          parameters: |
-            /my-app/db-password
-            /another-service/api-key
-          namespaced: 'true'
-```
-
-* The parameters will be exported as `MY_APP_DB_PASSWORD` and `ANOTHER_SERVICE_API_KEY`.
-
-### **Example with Custom Variable Mappings**
-
-In this example, the action fetches the parameter `/my-app/db-password` from SSM but exports it with a custom name (`MY_DB_PASSWORD`):
-
-```yaml
-name: Fetch SSM Parameters
-
-on:
-  push:
-    branches:
-      - main
-
-jobs:
-  fetch-parameters:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
-
-      - name: Fetch SSM Parameters and Set as Env Vars
-        uses: anudeepsamaiya/chamber-aws-ssm-parameter-store@v1
-        with:
-          parameters: |
-            /my-app/db-password:MY_DB_PASSWORD
-          namespaced: 'false'
-```
-
-* The fetched parameter will be exported as `MY_DB_PASSWORD` instead of `MY_APP_DB_PASSWORD`.
-
-### **Example with Custom Chamber Version**
-
-You can specify the version of **Chamber** to install, ensuring you use a version compatible with your requirements.
-
-```yaml
-name: Fetch SSM Parameters with Custom Chamber Version
-
-on:
-  push:
-    branches:
-      - main
-
-jobs:
-  fetch-parameters:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
-
-      - name: Fetch SSM Parameters and Set as Env Vars
-        uses: anudeepsamaiya/chamber-aws-ssm-parameter-store@v1
-        with:
-          parameters: |
-            /my-app/db-password
-          chamber_version: '0.7.0'
-          namespaced: 'true'
-```
-
-### **Example with Disabled Namespacing**
-
-You can disable namespacing and just use the parameter names as environment variables:
-
-```yaml
-name: Fetch SSM Parameters with Disabled Namespacing
-
-on:
-  push:
-    branches:
-      - main
-
-jobs:
-  fetch-parameters:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
-
-      - name: Fetch SSM Parameters and Set as Env Vars
-        uses: anudeepsamaiya/chamber-aws-ssm-parameter-store@v1
-        with:
-          parameters: |
-            /my-app/db-password
-            /another-service/api-key
-          namespaced: 'false'
-```
-
-* The parameters will be exported as `DB_PASSWORD` and `API_KEY` without any prefixes.
-
----
-
-## **Handling AWS Credentials**
-
-### **Recommended Setup with `aws-actions/configure-aws-credentials`**
-
-It is recommended to use the [**`aws-actions/configure-aws-credentials`**](https://github.com/aws-actions/configure-aws-credentials) GitHub Action to securely configure your AWS credentials. Here is an example:
-
-```yaml
-- name: Set up AWS credentials
-  uses: aws-actions/configure-aws-credentials@v1
+- name: Fetch SSM Parameters
+  uses: anudeepsamaiya/chamber-aws-ssm-parameter-store@v1
   with:
+    parameters: |
+      /my-app/db-password
+      /my-app/api-key
+```
+
+### With Credentials
+
+```yaml
+- name: Fetch SSM Parameters
+  uses: anudeepsamaiya/chamber-aws-ssm-parameter-store@v1
+  with:
+    parameters: |
+      /my-app/db-password
+      /my-app/api-key
+    aws-region: us-west-2
     aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
     aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-    aws-region: ${{ secrets.AWS_REGION }}
 ```
 
-### **AWS Credentials via Action Inputs or Environment Variables**
+### Without Namespacing
 
-You can also pass AWS credentials directly as inputs to this action, such as `aws-access-key-id`, `aws-secret-access-key`, and `aws-region`. If these inputs are not provided, the action will look for the corresponding environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`) to configure the AWS CLI.
+```yaml
+- name: Fetch SSM Parameters
+  uses: anudeepsamaiya/chamber-aws-ssm-parameter-store@v1
+  with:
+    parameters: |
+      /my-app/db-password
+      /my-app/api-key
+    namespaced: 'false'
+```
 
----
+### With Custom Variable Names
 
-## **Development and Testing**
+```yaml
+- name: Fetch SSM Parameters
+  uses: anudeepsamaiya/chamber-aws-ssm-parameter-store@v1
+  with:
+    parameters: |
+      /my-app/db-password:DATABASE_PASSWORD
+      /my-app/api-key:API_SECRET
+```
 
-### **Local Development Setup**
+### With Specific Chamber Version
 
-To set up the development environment:
+```yaml
+- name: Fetch SSM Parameters
+  uses: anudeepsamaiya/chamber-aws-ssm-parameter-store@v1
+  with:
+    parameters: |
+      /my-app/db-password
+    chamber_version: '2.10.12'  # or 'latest' for the newest release
+```
+
+## Complete Workflow Example
+
+```yaml
+name: Deploy with SSM Parameters
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # Configure AWS credentials (recommended approach)
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      # Fetch parameters from SSM
+      - name: Fetch SSM Parameters
+        uses: anudeepsamaiya/chamber-aws-ssm-parameter-store@v1
+        with:
+          parameters: |
+            /my-app/db-password
+            /my-app/api-key:API_SECRET_KEY
+          namespaced: 'true'
+
+      # Use the parameters in subsequent steps
+      - name: Deploy application
+        run: |
+          echo "Deploying with database password: $MY_APP_DB_PASSWORD"
+          echo "Using API key: $API_SECRET_KEY"
+          # Your deployment commands here
+```
+
+## AWS Credentials
+
+The action supports various ways of providing AWS credentials:
+
+1. **Using aws-actions/configure-aws-credentials (Recommended)**:
+   ```yaml
+   - name: Configure AWS credentials
+     uses: aws-actions/configure-aws-credentials@v2
+     with:
+       aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+       aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+       aws-region: us-east-1
+   ```
+
+2. **Direct Input Parameters**:
+   ```yaml
+   - name: Fetch SSM Parameters
+     uses: anudeepsamaiya/chamber-aws-ssm-parameter-store@v1
+     with:
+       parameters: |
+         /my-app/db-password
+       aws-region: us-east-1
+       aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+       aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+   ```
+
+3. **Environment Variables**:
+   The action will automatically use `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_REGION` if they are set in the workflow environment.
+
+## Development
+
+### Setting Up
 
 ```bash
 # Clone the repository
@@ -228,73 +184,32 @@ cd chamber-aws-ssm-parameter-store
 npm install
 ```
 
-### **Running Tests**
+### Testing
 
-The action includes a comprehensive test suite:
+The project includes unit tests and integration tests:
 
 ```bash
 # Run unit tests
 npm test
 
-# Run integration tests (with AWS calls mocked)
+# Run integration tests with mocked AWS
 SKIP_AWS_TESTS=true npm run test:integration
 
-# Run all tests
-make test
-```
-
-### **Testing with LocalStack**
-
-You can test the action locally using LocalStack to simulate AWS services:
-
-```bash
-# Start LocalStack for AWS simulation
+# Test with LocalStack (AWS simulation)
 make docker-test-env
-
-# Or use Docker Compose
-docker-compose up -d localstack
-docker-compose run test-runner
 ```
 
-### **Using the Makefile**
+### Common Tasks
 
-A Makefile is provided for common development tasks:
+Use the Makefile for common development tasks:
 
 ```bash
-# List all available commands
-make help
-
-# Lint the code
-make lint
-
-# Validate the action.yml format
-make validate
-
-# Test the action locally using act
-make local-action-test
+make help        # Show available commands
+make lint        # Run linters
+make validate    # Validate action.yml format
+make test        # Run all tests
 ```
 
----
+## License
 
-## **Contributing**
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes and ensure tests pass
-4. Commit your changes (`git commit -m 'Add some amazing feature'`)
-5. Push to the branch (`git push origin feature/amazing-feature`)
-6. Open a Pull Request
-
-Before submitting your PR, please:
-- Run the test suite (`make test`)
-- Run linters (`make lint`)
-- Validate the action format (`make validate`)
-- Update documentation as needed
-
----
-
-## **License**
-
-This GitHub Action is licensed under the **MIT License**.
+This GitHub Action is licensed under the MIT License.
