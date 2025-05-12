@@ -111,9 +111,30 @@ jobs:
       - name: Install dependencies
         run: npm ci
       
-      # Create test parameters in LocalStack
-      - name: Create test parameters
+      # Verify LocalStack is ready and create test parameters
+      - name: Verify LocalStack and create test parameters
         run: |
+          # Double-check LocalStack is ready (in addition to service container health check)
+          echo "Verifying LocalStack is ready..."
+          count=0
+          max_attempts=10
+
+          while [ $count -lt $max_attempts ]; do
+            if curl -s http://localhost:4566/health?services=ssm | grep -q '"ssm": "running"'; then
+              echo "✅ LocalStack is ready!"
+              break
+            fi
+            echo "Waiting for LocalStack... (attempt $(( count + 1 ))/$max_attempts)"
+            sleep 2
+            count=$((count + 1))
+          done
+
+          if [ $count -eq $max_attempts ]; then
+            echo "::error::LocalStack did not start properly within timeout"
+            exit 1
+          fi
+
+          # Create test parameters in LocalStack
           echo "Creating test parameters in LocalStack..."
           aws --endpoint-url=http://localhost:4566 ssm put-parameter \
             --name "${{ env.TEST_PARAM_1 }}" --value "${{ env.TEST_VALUE_1 }}" --type String --overwrite
@@ -123,7 +144,7 @@ jobs:
           # Verify parameters were created
           param1_value=$(aws --endpoint-url=http://localhost:4566 ssm get-parameter \
               --name "${{ env.TEST_PARAM_1 }}" --query "Parameter.Value" --output text 2>/dev/null)
-          
+
           if [ "$param1_value" = "${{ env.TEST_VALUE_1 }}" ]; then
             echo "✅ Test parameters created successfully!"
           else

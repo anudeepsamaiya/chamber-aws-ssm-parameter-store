@@ -44,18 +44,23 @@ jobs:
 
           # Wait for LocalStack
           echo "Waiting for LocalStack to be ready..."
-          attempts=0
-          max_attempts=10
-          
-          while [ $attempts -lt $max_attempts ]; do
+          count=0
+          max_attempts=20
+
+          while [ $count -lt $max_attempts ]; do
             if curl -s http://localhost:4566/health?services=ssm | grep -q '"ssm": "running"'; then
               echo "✅ LocalStack is ready!"
               break
             fi
-            echo "Waiting for LocalStack... (attempt $(( attempts + 1 ))/$max_attempts)"
-            sleep 3
-            attempts=$((attempts + 1))
+            echo "Waiting for LocalStack... (attempt $(( count + 1 ))/$max_attempts)"
+            sleep 2
+            count=$((count + 1))
           done
+
+          if [ $count -eq $max_attempts ]; then
+            echo "::error::LocalStack did not start properly within timeout"
+            exit 1
+          fi
 
           # Configure AWS CLI
           aws configure set aws_access_key_id test
@@ -65,10 +70,22 @@ jobs:
           aws configure set endpoint_url http://localhost:4566
 
           # Create test parameters
+          echo "Creating test parameters in LocalStack..."
           aws --endpoint-url=http://localhost:4566 ssm put-parameter \
             --name "$TEST_PARAM_1" --value "$TEST_VALUE_1" --type String --overwrite
           aws --endpoint-url=http://localhost:4566 ssm put-parameter \
             --name "$TEST_PARAM_2" --value "$TEST_VALUE_2" --type String --overwrite
+
+          # Verify parameters were created
+          param1_value=$(aws --endpoint-url=http://localhost:4566 ssm get-parameter \
+              --name "$TEST_PARAM_1" --query "Parameter.Value" --output text 2>/dev/null)
+
+          if [ "$param1_value" = "$TEST_VALUE_1" ]; then
+            echo "✅ Test parameters created successfully!"
+          else
+            echo "::error::Failed to create test parameters"
+            exit 1
+          fi
 
           echo "CHAMBER_AWS_SSM_ENDPOINT=http://localhost:4566" >> $GITHUB_ENV
 
