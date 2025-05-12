@@ -1,0 +1,62 @@
+name: Validate
+
+on:
+  push:
+    branches: [ main, squashed-patchwork ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      node_version:
+        description: 'Node.js version'
+        required: false
+        default: '18'
+        type: string
+
+jobs:
+  validate:
+    name: Validate Action Config
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ github.event.inputs.node_version || '18' }}
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Validate action.yml
+        id: validate
+        run: |
+          echo "Validating action.yml format and structure..."
+          cat action.yml | node -e "
+            try {
+              const yaml = require('yaml');
+              const content = require('fs').readFileSync(0, 'utf8');
+              const parsedYaml = yaml.parse(content);
+              
+              // Check required fields
+              const requiredFields = ['name', 'description', 'runs'];
+              for (const field of requiredFields) {
+                if (!parsedYaml[field]) {
+                  throw new Error(`Missing required field '${field}' in action.yml`);
+                }
+              }
+              
+              console.log('✅ Action validation successful!');
+            } catch (error) {
+              console.error('Error validating action.yml:', error.message);
+              process.exit(1);
+            }
+          "
+      
+      - name: Generate validation summary
+        if: always()
+        run: |
+          echo "## Validation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Action Config**: ${{ steps.validate.outcome || 'Unknown' }}" >> $GITHUB_STEP_SUMMARY

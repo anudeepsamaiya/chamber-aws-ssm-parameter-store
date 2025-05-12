@@ -1,0 +1,41 @@
+name: Lint
+
+on:
+  push:
+    branches: [ main, squashed-patchwork ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      node_version:
+        description: 'Node.js version'
+        required: false
+        default: '18'
+        type: string
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ github.event.inputs.node_version || '18' }}
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Run linters
+        id: lint
+        run: npm run lint
+      
+      - name: Generate lint summary
+        if: always()
+        run: |
+          echo "## Lint Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **ESLint**: ${{ steps.lint.outcome || 'Unknown' }}" >> $GITHUB_STEP_SUMMARY
