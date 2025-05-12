@@ -95,9 +95,9 @@ jobs:
       - name: Fetch SSM Parameters and Set as Env Vars
         uses: anudeepsamaiya/chamber-aws-ssm-parameter-store@v1
         with:
-          parameters:
-            - "/my-app/db-password"
-            - "/another-service/api-key"
+          parameters: |
+            /my-app/db-password
+            /another-service/api-key
           namespaced: 'true'
 ```
 
@@ -125,8 +125,8 @@ jobs:
       - name: Fetch SSM Parameters and Set as Env Vars
         uses: anudeepsamaiya/chamber-aws-ssm-parameter-store@v1
         with:
-          parameters:
-            - "/my-app/db-password:MY_DB_PASSWORD"
+          parameters: |
+            /my-app/db-password:MY_DB_PASSWORD
           namespaced: 'false'
 ```
 
@@ -154,8 +154,8 @@ jobs:
       - name: Fetch SSM Parameters and Set as Env Vars
         uses: anudeepsamaiya/chamber-aws-ssm-parameter-store@v1
         with:
-          parameters:
-            - "/my-app/db-password"
+          parameters: |
+            /my-app/db-password
           chamber_version: '0.7.0'
           namespaced: 'true'
 ```
@@ -182,9 +182,9 @@ jobs:
       - name: Fetch SSM Parameters and Set as Env Vars
         uses: anudeepsamaiya/chamber-aws-ssm-parameter-store@v1
         with:
-          parameters:
-            - "/my-app/db-password"
-            - "/another-service/api-key"
+          parameters: |
+            /my-app/db-password
+            /another-service/api-key
           namespaced: 'false'
 ```
 
