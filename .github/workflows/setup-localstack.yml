@@ -7,17 +7,22 @@ on:
         description: 'Maximum time to wait for LocalStack to be ready (in seconds)'
         required: false
         type: number
-        default: 30
+        default: 60
       max_retries:
         description: 'Maximum number of retries for health check'
         required: false
         type: number
-        default: 10
+        default: 20
       aws_region:
         description: 'AWS region to use for testing'
         required: false
         type: string
         default: 'us-east-1'
+      fail_on_timeout:
+        description: 'Whether to fail if LocalStack is not ready within timeout'
+        required: false
+        type: boolean
+        default: true
     outputs:
       endpoint_url:
         description: 'LocalStack endpoint URL'
@@ -25,6 +30,9 @@ on:
       status:
         description: 'Setup status (success/failure)'
         value: ${{ jobs.setup.outputs.status }}
+      params_ready:
+        description: 'Whether test parameters are ready'
+        value: ${{ jobs.setup.outputs.params_ready }}
 
 jobs:
   setup:
@@ -32,7 +40,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       endpoint_url: "http://localhost:4566"
-      status: ${{ steps.health_check.outputs.status }}
+      status: ${{ steps.complete_setup.outputs.status }}
+      params_ready: ${{ steps.create_params.outputs.params_ready }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -46,92 +55,136 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-docker-compose-
 
-      - name: Start LocalStack
-        id: start_localstack
+      # Combined step to start LocalStack and wait for it to be ready
+      # This ensures everything happens in the same container context
+      - name: Start LocalStack and wait for it to be ready
+        id: complete_setup
+        timeout-minutes: 5
         run: |
+          # Start the containers
+          echo "Starting LocalStack containers..."
           make docker-dev-env
-          echo "LocalStack started, checking health..."
-
-      - name: Wait for LocalStack to be ready
-        id: health_check
-        timeout-minutes: 2
-        run: |
+          
+          # Initialize status
           status="failure"
-          retries=0
-          max_retries=${{ inputs.max_retries }}
-
+          
+          # Wait for LocalStack to be ready with progressive reporting
           echo "Waiting for LocalStack to be ready (max ${{ inputs.wait_time }} seconds)..."
-
-          while [ $retries -lt $max_retries ]; do
+          
+          start_time=$(date +%s)
+          end_time=$((start_time + ${{ inputs.wait_time }}))
+          
+          attempt=0
+          max_attempts=${{ inputs.max_retries }}
+          sleep_time=$(( ${{ inputs.wait_time }} / ${{ inputs.max_retries }} ))
+          
+          # Keep checking until it's ready or we time out
+          while [ $(date +%s) -lt $end_time ] && [ $attempt -lt $max_attempts ]; do
+            attempt=$((attempt + 1))
+            
+            # Check if service is running
             if curl -s http://localhost:4566/health?services=ssm | grep -q '"ssm": "running"'; then
-              echo "LocalStack SSM service is ready!"
+              echo "✅ LocalStack SSM service is ready!"
               status="success"
               break
             fi
-
-            echo "Waiting for LocalStack services... ($((retries+1))/$max_retries)"
-            sleep $(( ${{ inputs.wait_time }} / $max_retries ))
-            retries=$((retries+1))
+            
+            # Display progress and check container logs if taking too long
+            if [ $attempt -eq $(( $max_attempts / 2 )) ]; then
+              echo "Still waiting for LocalStack... checking container logs:"
+              docker compose logs localstack --tail 20
+            fi
+            
+            echo "⏳ Waiting for LocalStack services... (Attempt $attempt/$max_attempts, elapsed: $(($(date +%s) - start_time))s)"
+            sleep $sleep_time
           done
-
-          if [ "$status" = "failure" ]; then
-            echo "LocalStack failed to start properly in time"
-            echo "::warning::LocalStack services did not start properly. Check Docker logs."
+          
+          # Final status check
+          if [ "$status" != "success" ]; then
+            echo "LocalStack failed to start properly within the timeout period"
+            echo "::warning::LocalStack services did not start properly. Container logs:"
             docker compose logs localstack
+            
+            if [ "${{ inputs.fail_on_timeout }}" = "true" ]; then
+              echo "::error::LocalStack failed to initialize. Failing the workflow as requested."
+              exit 1
+            fi
+          else
+            # Configure AWS CLI within the same step to ensure it happens in the same container
+            # and only if LocalStack is actually ready
+            echo "🔧 Configuring AWS CLI for LocalStack..."
+            aws configure set aws_access_key_id test
+            aws configure set aws_secret_access_key test
+            aws configure set region ${{ inputs.aws_region }}
+            aws configure set output json
+            aws configure set endpoint_url http://localhost:4566
+            
+            # Set environment variables
+            echo "AWS_ACCESS_KEY_ID=test" >> $GITHUB_ENV
+            echo "AWS_SECRET_ACCESS_KEY=test" >> $GITHUB_ENV
+            echo "AWS_REGION=${{ inputs.aws_region }}" >> $GITHUB_ENV
+            echo "CHAMBER_AWS_SSM_ENDPOINT=http://localhost:4566" >> $GITHUB_ENV
           fi
-
+          
+          # Output status for job control
           echo "status=$status" >> $GITHUB_OUTPUT
 
-      - name: Configure AWS CLI
-        if: steps.health_check.outputs.status != 'failure'
-        run: |
-          aws configure set aws_access_key_id test
-          aws configure set aws_secret_access_key test
-          aws configure set region ${{ inputs.aws_region }}
-          aws configure set output json
-          aws configure set endpoint_url http://localhost:4566
-
-          # Set environment variables
-          echo "AWS_ACCESS_KEY_ID=test" >> $GITHUB_ENV
-          echo "AWS_SECRET_ACCESS_KEY=test" >> $GITHUB_ENV
-          echo "AWS_REGION=${{ inputs.aws_region }}" >> $GITHUB_ENV
-          echo "CHAMBER_AWS_SSM_ENDPOINT=http://localhost:4566" >> $GITHUB_ENV
-
-      - name: Create test parameters
+      # Create test parameters in a separate step but only if LocalStack is ready
+      - name: Create and verify test parameters
         id: create_params
-        if: steps.health_check.outputs.status != 'failure'
+        if: steps.complete_setup.outputs.status == 'success'
         run: |
+          # Initialize status
+          params_ready="false"
+          
           export TEST_PARAM_1="/test-action/param1"
           export TEST_PARAM_2="/test-action/param2"
           export TEST_VALUE_1="value1"
           export TEST_VALUE_2="value2"
 
-          # Set parameters in LocalStack
-          echo "Creating test parameters in LocalStack..."
+          echo "🔧 Creating test parameters in LocalStack..."
           aws --endpoint-url=http://localhost:4566 --region ${{ inputs.aws_region }} ssm put-parameter \
             --name "$TEST_PARAM_1" --value "$TEST_VALUE_1" --type String --overwrite
           aws --endpoint-url=http://localhost:4566 --region ${{ inputs.aws_region }} ssm put-parameter \
             --name "$TEST_PARAM_2" --value "$TEST_VALUE_2" --type String --overwrite
 
-          # Verify parameters were created
-          echo "Verifying parameters were created successfully..."
-          if ! aws --endpoint-url=http://localhost:4566 --region ${{ inputs.aws_region }} ssm get-parameter \
-              --name "$TEST_PARAM_1" --query "Parameter.Value" --output text; then
-            echo "::error::Failed to create or retrieve parameter $TEST_PARAM_1"
-            exit 1
+          echo "🔍 Verifying parameters were created successfully..."
+          param1_value=$(aws --endpoint-url=http://localhost:4566 --region ${{ inputs.aws_region }} ssm get-parameter \
+              --name "$TEST_PARAM_1" --query "Parameter.Value" --output text 2>/dev/null)
+          param2_value=$(aws --endpoint-url=http://localhost:4566 --region ${{ inputs.aws_region }} ssm get-parameter \
+              --name "$TEST_PARAM_2" --query "Parameter.Value" --output text 2>/dev/null)
+          
+          if [ "$param1_value" = "$TEST_VALUE_1" ] && [ "$param2_value" = "$TEST_VALUE_2" ]; then
+            echo "✅ Test parameters verified successfully!"
+            params_ready="true"
+          else
+            echo "::error::Failed to create or verify test parameters: expected '$TEST_VALUE_1' and '$TEST_VALUE_2', got '$param1_value' and '$param2_value'"
           fi
-
-          if ! aws --endpoint-url=http://localhost:4566 --region ${{ inputs.aws_region }} ssm get-parameter \
-              --name "$TEST_PARAM_2" --query "Parameter.Value" --output text; then
-            echo "::error::Failed to create or retrieve parameter $TEST_PARAM_2"
-            exit 1
-          fi
-
-          echo "Test parameters created successfully!"
-
+          
+          # Output status for job control
+          echo "params_ready=$params_ready" >> $GITHUB_OUTPUT
+          
+          # Store test parameters in GitHub environment for subsequent steps
+          echo "TEST_PARAM_1=$TEST_PARAM_1" >> $GITHUB_ENV
+          echo "TEST_PARAM_2=$TEST_PARAM_2" >> $GITHUB_ENV
+          echo "TEST_VALUE_1=$TEST_VALUE_1" >> $GITHUB_ENV
+          echo "TEST_VALUE_2=$TEST_VALUE_2" >> $GITHUB_ENV
+      
+      # Generate a detailed setup report
       - name: Setup summary
         run: |
-          echo "## LocalStack Setup Status" >> $GITHUB_STEP_SUMMARY
-          echo "- **Status**: ${{ steps.health_check.outputs.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "## 📊 LocalStack Setup Report" >> $GITHUB_STEP_SUMMARY
+          echo "### Status" >> $GITHUB_STEP_SUMMARY
+          echo "- **LocalStack Status**: ${{ steps.complete_setup.outputs.status == 'success' && '✅ Ready' || '❌ Not Ready' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Parameters Status**: ${{ steps.create_params.outputs.params_ready == 'true' && '✅ Created' || '❌ Not Created' }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Endpoint**: http://localhost:4566" >> $GITHUB_STEP_SUMMARY
           echo "- **Region**: ${{ inputs.aws_region }}" >> $GITHUB_STEP_SUMMARY
+          
+          # Show test configuration
+          echo "### Test Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "- **Parameter 1**: ${{ env.TEST_PARAM_1 || '/test-action/param1' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Parameter 2**: ${{ env.TEST_PARAM_2 || '/test-action/param2' }}" >> $GITHUB_STEP_SUMMARY
+          
+          # Show container status
+          echo "### Container Status" >> $GITHUB_STEP_SUMMARY
+          docker compose ps >> $GITHUB_STEP_SUMMARY

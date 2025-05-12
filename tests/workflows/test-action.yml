@@ -54,61 +54,95 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Setup LocalStack
+      # Combined step to start LocalStack and wait for it to be ready
+      - name: Setup LocalStack and create test parameters
         id: localstack_setup
         run: |
-          echo "Starting LocalStack..."
+          # Start the containers
+          echo "Starting LocalStack containers..."
           docker compose up -d localstack
 
-          # Wait for LocalStack to be ready with timeout
+          # Initialize status variables
+          status="failure"
+          params_ready="false"
+
+          # Wait for LocalStack to be ready with progressive reporting
+          echo "Waiting for LocalStack to be ready (max ${{ github.event.inputs.timeout || 30 }} seconds)..."
+
           timeout=${{ github.event.inputs.timeout || 30 }}
           start_time=$(date +%s)
           max_end_time=$((start_time + timeout))
 
-          while [ $(date +%s) -lt $max_end_time ]; do
+          attempt=0
+          max_attempts=15
+          sleep_time=$(( timeout / max_attempts ))
+
+          # Keep checking until it's ready or we time out
+          while [ $(date +%s) -lt $max_end_time ] && [ $attempt -lt $max_attempts ]; do
+            attempt=$((attempt + 1))
+
+            # Check if service is running
             if curl -s http://localhost:4566/health?services=ssm | grep -q '"ssm": "running"'; then
-              echo "LocalStack is ready!"
-              echo "ready=true" >> $GITHUB_OUTPUT
+              echo "✅ LocalStack SSM service is ready!"
+              status="success"
               break
             fi
-            echo "Waiting for LocalStack to be ready... ($(date))"
-            sleep 2
+
+            # Display progress and check container logs if taking too long
+            if [ $attempt -eq $(( max_attempts / 2 )) ]; then
+              echo "Still waiting for LocalStack... checking container logs:"
+              docker compose logs localstack --tail 20
+            fi
+
+            echo "⏳ Waiting for LocalStack services... (Attempt $attempt/$max_attempts, elapsed: $(($(date +%s) - start_time))s)"
+            sleep $sleep_time
           done
 
-          if [ "$(curl -s http://localhost:4566/health?services=ssm | grep -q '"ssm": "running"; echo $?)" != "0" ]; then
-            echo "::error::LocalStack did not start properly within timeout"
+          # Final status check
+          if [ "$status" != "success" ]; then
+            echo "LocalStack failed to start properly within the timeout period"
+            echo "::warning::LocalStack services did not start properly. Container logs:"
+            docker compose logs localstack
             echo "ready=false" >> $GITHUB_OUTPUT
             exit 1
+          else
+            # Configure AWS CLI within the same step to ensure it happens in the same container
+            # and only if LocalStack is actually ready
+            echo "🔧 Configuring AWS CLI for LocalStack..."
+            aws configure set aws_access_key_id test
+            aws configure set aws_secret_access_key test
+            aws configure set region ${{ github.event.inputs.aws_region || 'us-east-1' }}
+            aws configure set output json
+            aws configure set endpoint_url http://localhost:4566
+
+            # Create test parameters in the same step
+            echo "Creating test parameters..."
+            aws --endpoint-url=http://localhost:4566 ssm put-parameter \
+              --name "$TEST_PARAM_1" --value "$TEST_VALUE_1" --type String --overwrite
+            aws --endpoint-url=http://localhost:4566 ssm put-parameter \
+              --name "$TEST_PARAM_2" --value "$TEST_VALUE_2" --type String --overwrite
+
+            # Verify parameters were created
+            echo "Verifying parameters..."
+            param1_value=$(aws --endpoint-url=http://localhost:4566 ssm get-parameter \
+              --name "$TEST_PARAM_1" --query "Parameter.Value" --output text)
+            param2_value=$(aws --endpoint-url=http://localhost:4566 ssm get-parameter \
+              --name "$TEST_PARAM_2" --query "Parameter.Value" --output text)
+
+            if [ "$param1_value" = "$TEST_VALUE_1" ] && [ "$param2_value" = "$TEST_VALUE_2" ]; then
+              echo "✅ Test parameters verified successfully!"
+              params_ready="true"
+            else
+              echo "::error::Failed to create or verify test parameters"
+              params_ready="false"
+            fi
+
+            echo "Parameter values: $param1_value, $param2_value"
+
+            # Set chamber endpoint for GitHub env
+            echo "CHAMBER_AWS_SSM_ENDPOINT=http://localhost:4566" >> $GITHUB_ENV
+            echo "ready=true" >> $GITHUB_OUTPUT
           fi
-
-          # Configure AWS CLI for LocalStack
-          aws configure set aws_access_key_id test
-          aws configure set aws_secret_access_key test
-          aws configure set region ${{ github.event.inputs.aws_region || 'us-east-1' }}
-          aws configure set output json
-          aws configure set endpoint_url http://localhost:4566
-
-      # Create test parameters in LocalStack
-      - name: Create test parameters
-        if: steps.localstack_setup.outputs.ready == 'true'
-        run: |
-          echo "Creating test parameters..."
-          aws --endpoint-url=http://localhost:4566 ssm put-parameter \
-            --name "$TEST_PARAM_1" --value "$TEST_VALUE_1" --type String --overwrite
-          aws --endpoint-url=http://localhost:4566 ssm put-parameter \
-            --name "$TEST_PARAM_2" --value "$TEST_VALUE_2" --type String --overwrite
-
-          # Verify parameters were created
-          echo "Verifying parameters..."
-          param1_value=$(aws --endpoint-url=http://localhost:4566 ssm get-parameter \
-            --name "$TEST_PARAM_1" --query "Parameter.Value" --output text)
-          param2_value=$(aws --endpoint-url=http://localhost:4566 ssm get-parameter \
-            --name "$TEST_PARAM_2" --query "Parameter.Value" --output text)
-
-          echo "Parameter values: $param1_value, $param2_value"
-
-          # Set chamber endpoint for GitHub env
-          echo "CHAMBER_AWS_SSM_ENDPOINT=http://localhost:4566" >> $GITHUB_ENV
 
       # Install Chamber locally for testing
       - name: Install Chamber
@@ -189,6 +223,17 @@ jobs:
 
       - name: Test summary
         run: |
+          echo "## Action Local Test Summary" >> $GITHUB_STEP_SUMMARY
+          echo "### Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "- **LocalStack Setup**: ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- **Namespaced parameters**: ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- **Non-namespaced parameters**: ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- **Custom parameter mappings**: ✅" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "- **AWS Region**: ${{ github.event.inputs.aws_region || 'us-east-1' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Chamber Version**: ${{ github.event.inputs.chamber_version || '2.10.12' }}" >> $GITHUB_STEP_SUMMARY
+
           echo "All tests completed successfully!"
           echo "- Namespaced parameters: ✅"
           echo "- Non-namespaced parameters: ✅"

@@ -140,42 +140,50 @@ jobs:
     name: Run integration tests with LocalStack
     needs: setup
     runs-on: ubuntu-latest
+    # Setup LocalStack using reusable workflow
+    uses: ./.github/workflows/setup-localstack.yml
+    with:
+      wait_time: 30
+      max_retries: 10
+      aws_region: ${{ github.event.inputs.aws_region || 'us-east-1' }}
+
+  # Run actual integration tests after LocalStack is ready
+  run-integration-tests:
+    name: Execute integration tests
+    needs: integration-tests
+    if: needs.integration-tests.outputs.status == 'success' && needs.integration-tests.outputs.params_ready == 'true'
+    runs-on: ubuntu-latest
+    container:
+      # Use container-based job to ensure consistent environment
+      image: node:18
+      env:
+        AWS_ACCESS_KEY_ID: test
+        AWS_SECRET_ACCESS_KEY: test
+        AWS_REGION: ${{ github.event.inputs.aws_region || 'us-east-1' }}
+        CHAMBER_AWS_SSM_ENDPOINT: http://localhost:4566
+        DOCKER_ENV: true
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-        
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
+
+      - name: Setup Node.js caching
+        uses: actions/cache@v3
         with:
-          node-version: ${{ github.event.inputs.node_version || '18' }}
-          cache: 'npm'
-          
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
       - name: Install dependencies
         run: npm ci
-        
-      # Setup LocalStack using reusable workflow
-      - uses: ./.github/workflows/setup-localstack.yml
-        id: localstack
-        with:
-          wait_time: 30
-          max_retries: 10
-          aws_region: ${{ github.event.inputs.aws_region || 'us-east-1' }}
 
       - name: Run integration tests
-        if: steps.localstack.outputs.status != 'failure'
-        run: |
-          export DOCKER_ENV=true
-          export CHAMBER_AWS_SSM_ENDPOINT=http://localhost:4566
-          npm run test:integration
-      
-      - name: Clean up Docker resources
-        if: always()
-        run: docker compose down || true
+        run: npm run test:integration
 
   # Test Action with different configurations (parallel jobs)
   test-action-configs:
     name: Test Action Configurations
-    needs: [validate-action, lint, unit-tests]
+    needs: [validate-action, lint, unit-tests, run-integration-tests]
     uses: ./.github/workflows/test-action-configs.yml
     with:
       aws_region: ${{ github.event.inputs.aws_region || 'us-east-1' }}
@@ -185,7 +193,7 @@ jobs:
   report:
     name: Test Report
     runs-on: ubuntu-latest
-    needs: [integration-tests, test-action-configs]
+    needs: [integration-tests, run-integration-tests, test-action-configs]
     if: always()
     steps:
       - name: Generate GitHub workflow report
@@ -196,14 +204,16 @@ jobs:
           echo "- **Validate Action**: ${{ needs.validate-action.result || 'Did not run' }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Lint**: ${{ needs.lint.result || 'Did not run' }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Unit Tests**: ${{ needs.unit-tests.result || 'Did not run' }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Integration Tests**: ${{ needs.integration-tests.result || 'Did not run' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **LocalStack Setup**: ${{ needs.integration-tests.result || 'Did not run' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Integration Tests**: ${{ needs.run-integration-tests.result || 'Did not run' }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Action Configurations**: ${{ needs.test-action-configs.result || 'Did not run' }}" >> $GITHUB_STEP_SUMMARY
-          
+
           echo "### Test Summary" >> $GITHUB_STEP_SUMMARY
           if [[ "${{ needs.validate-action.result }}" == "success" && \
                 "${{ needs.lint.result }}" == "success" && \
                 "${{ needs.unit-tests.result }}" == "success" && \
                 "${{ needs.integration-tests.result }}" == "success" && \
+                "${{ needs.run-integration-tests.result }}" == "success" && \
                 "${{ needs.test-action-configs.result }}" == "success" ]]; then
             echo "✅ All tests passed successfully!" >> $GITHUB_STEP_SUMMARY
           else
