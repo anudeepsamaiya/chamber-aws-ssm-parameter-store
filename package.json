@@ -5,12 +5,16 @@
   "main": "action.yml",
   "scripts": {
     "test": "jest",
+    "test:unit": "jest",
     "test:integration": "jest --config jest.integration.config.js",
-    "test:all": "npm test && npm run test:integration",
+    "test:all": "npm run test:unit && npm run test:integration",
+    "test:coverage": "jest --coverage",
+    "test:watch": "jest --watch",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "validate": "node -e \"console.log('Action validation would run here')\" && cat action.yml",
-    "postinstall": "node -e \"console.log('Ensuring package-lock.json exists')\""
+    "validate": "node -e \"console.log('Validating action.yml format and structure...')\" && cat action.yml | node -e \"JSON.stringify(require('yaml').parse(require('fs').readFileSync(0, 'utf8'))); console.log('Action validation successful!')\"",
+    "postinstall": "node -e \"console.log('Ensuring package-lock.json exists')\"",
+    "docker:test": "docker compose exec test-runner npm run test:all"
   },
   "repository": {
     "type": "git",
