@@ -1,0 +1,67 @@
+name: 'Setup Chamber and Fetch SSM Parameters'
+description: |
+  This GitHub Action sets up Chamber, retrieves AWS SSM parameters,
+  and populates them as environment variables for use in other steps.
+  AWS configuration is injected by the user or defaults to environment variables.
+
+inputs:
+  aws-region:
+    description: 'The AWS region where your SSM parameters are stored.'
+    required: true
+
+  parameters:
+    description: 'Comma-separated list of SSM parameters to fetch.'
+    required: true
+
+  with-decryption:
+    description: 'Flag to specify if SecureString parameters should be decrypted.'
+    required: false
+    default: 'false'
+
+  aws-access-key-id:
+    description: 'AWS access key ID'
+    required: false
+
+  aws-secret-access-key:
+    description: 'AWS secret access key'
+    required: false
+
+runs:
+  using: "composite"
+  steps:
+    # Step 1: Set up AWS CLI with provided or environment credentials
+    - name: Set up AWS CLI with provided or environment credentials
+      run: |
+        if [[ -z "${{ inputs.aws-access-key-id }}" || -z "${{ inputs.aws-secret-access-key }}" ]]; then
+          echo "No AWS credentials supplied, using environment variables."
+          # Use the AWS environment credentials if no inputs are provided
+          aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
+          aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
+        else
+          echo "Using AWS credentials from inputs."
+          # Use the provided AWS credentials
+          aws configure set aws_access_key_id ${{ inputs.aws-access-key-id }}
+          aws configure set aws_secret_access_key ${{ inputs.aws-secret-access-key }}
+        fi
+        aws configure set region ${{ inputs.aws-region }}
+
+    # Step 2: Install Chamber
+    - name: Install Chamber
+      run: |
+        curl -sSL https://github.com/segmentio/chamber/releases/download/v2.9.0/chamber-linux-amd64 -o /usr/local/bin/chamber
+        chmod +x /usr/local/bin/chamber
+
+    # Step 3: Fetch parameters from AWS SSM and populate them as environment variables
+    - name: Fetch and set SSM parameters as env variables
+      run: |
+        # Loop through each parameter and retrieve it using Chamber
+        IFS=',' read -r -a params <<< "${{ inputs.parameters }}"
+        for param in "${params[@]}"; do
+          if [[ "${{ inputs.with-decryption }}" == "true" ]]; then
+            value=$(chamber read $param --with-decryption)
+          else
+            value=$(chamber read $param)
+          fi
+          # Set the fetched value as an environment variable
+          echo "$param=$value" >> $GITHUB_ENV
+        done
