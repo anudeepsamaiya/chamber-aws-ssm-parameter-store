@@ -4,10 +4,27 @@ on:
   workflow_call:
     inputs:
       wait_time:
-        description: 'Time to wait for LocalStack to be ready (in seconds)'
+        description: 'Maximum time to wait for LocalStack to be ready (in seconds)'
+        required: false
+        type: number
+        default: 30
+      max_retries:
+        description: 'Maximum number of retries for health check'
         required: false
         type: number
         default: 10
+      aws_region:
+        description: 'AWS region to use for testing'
+        required: false
+        type: string
+        default: 'us-east-1'
+    outputs:
+      endpoint_url:
+        description: 'LocalStack endpoint URL'
+        value: ${{ jobs.setup.outputs.endpoint_url }}
+      status:
+        description: 'Setup status (success/failure)'
+        value: ${{ jobs.setup.outputs.status }}
 
 jobs:
   setup:
@@ -15,31 +32,74 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       endpoint_url: "http://localhost:4566"
+      status: ${{ steps.health_check.outputs.status }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
+      # Cache Docker compose to speed up builds
+      - name: Cache Docker compose
+        uses: actions/cache@v3
+        with:
+          path: ~/.docker/compose
+          key: ${{ runner.os }}-docker-compose-${{ hashFiles('**/docker-compose.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-docker-compose-
+
       - name: Start LocalStack
+        id: start_localstack
         run: |
           make docker-dev-env
-          echo "Waiting for LocalStack to be ready..."
-          sleep ${{ inputs.wait_time }}
+          echo "LocalStack started, checking health..."
+
+      - name: Wait for LocalStack to be ready
+        id: health_check
+        timeout-minutes: 2
+        run: |
+          status="failure"
+          retries=0
+          max_retries=${{ inputs.max_retries }}
+
+          echo "Waiting for LocalStack to be ready (max ${{ inputs.wait_time }} seconds)..."
+
+          while [ $retries -lt $max_retries ]; do
+            if curl -s http://localhost:4566/health?services=ssm | grep -q '"ssm": "running"'; then
+              echo "LocalStack SSM service is ready!"
+              status="success"
+              break
+            fi
+
+            echo "Waiting for LocalStack services... ($((retries+1))/$max_retries)"
+            sleep $(( ${{ inputs.wait_time }} / $max_retries ))
+            retries=$((retries+1))
+          done
+
+          if [ "$status" = "failure" ]; then
+            echo "LocalStack failed to start properly in time"
+            echo "::warning::LocalStack services did not start properly. Check Docker logs."
+            docker compose logs localstack
+          fi
+
+          echo "status=$status" >> $GITHUB_OUTPUT
 
       - name: Configure AWS CLI
+        if: steps.health_check.outputs.status != 'failure'
         run: |
           aws configure set aws_access_key_id test
           aws configure set aws_secret_access_key test
-          aws configure set region us-east-1
+          aws configure set region ${{ inputs.aws_region }}
           aws configure set output json
           aws configure set endpoint_url http://localhost:4566
-          
+
           # Set environment variables
           echo "AWS_ACCESS_KEY_ID=test" >> $GITHUB_ENV
           echo "AWS_SECRET_ACCESS_KEY=test" >> $GITHUB_ENV
-          echo "AWS_REGION=us-east-1" >> $GITHUB_ENV
+          echo "AWS_REGION=${{ inputs.aws_region }}" >> $GITHUB_ENV
           echo "CHAMBER_AWS_SSM_ENDPOINT=http://localhost:4566" >> $GITHUB_ENV
 
       - name: Create test parameters
+        id: create_params
+        if: steps.health_check.outputs.status != 'failure'
         run: |
           export TEST_PARAM_1="/test-action/param1"
           export TEST_PARAM_2="/test-action/param2"
@@ -47,13 +107,31 @@ jobs:
           export TEST_VALUE_2="value2"
 
           # Set parameters in LocalStack
-          aws --endpoint-url=http://localhost:4566 --region us-east-1 ssm put-parameter \
+          echo "Creating test parameters in LocalStack..."
+          aws --endpoint-url=http://localhost:4566 --region ${{ inputs.aws_region }} ssm put-parameter \
             --name "$TEST_PARAM_1" --value "$TEST_VALUE_1" --type String --overwrite
-          aws --endpoint-url=http://localhost:4566 --region us-east-1 ssm put-parameter \
+          aws --endpoint-url=http://localhost:4566 --region ${{ inputs.aws_region }} ssm put-parameter \
             --name "$TEST_PARAM_2" --value "$TEST_VALUE_2" --type String --overwrite
 
           # Verify parameters were created
-          aws --endpoint-url=http://localhost:4566 --region us-east-1 ssm get-parameter \
-            --name "$TEST_PARAM_1" || echo "Failed to create parameter $TEST_PARAM_1"
-          aws --endpoint-url=http://localhost:4566 --region us-east-1 ssm get-parameter \
-            --name "$TEST_PARAM_2" || echo "Failed to create parameter $TEST_PARAM_2"
+          echo "Verifying parameters were created successfully..."
+          if ! aws --endpoint-url=http://localhost:4566 --region ${{ inputs.aws_region }} ssm get-parameter \
+              --name "$TEST_PARAM_1" --query "Parameter.Value" --output text; then
+            echo "::error::Failed to create or retrieve parameter $TEST_PARAM_1"
+            exit 1
+          fi
+
+          if ! aws --endpoint-url=http://localhost:4566 --region ${{ inputs.aws_region }} ssm get-parameter \
+              --name "$TEST_PARAM_2" --query "Parameter.Value" --output text; then
+            echo "::error::Failed to create or retrieve parameter $TEST_PARAM_2"
+            exit 1
+          fi
+
+          echo "Test parameters created successfully!"
+
+      - name: Setup summary
+        run: |
+          echo "## LocalStack Setup Status" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ${{ steps.health_check.outputs.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Endpoint**: http://localhost:4566" >> $GITHUB_STEP_SUMMARY
+          echo "- **Region**: ${{ inputs.aws_region }}" >> $GITHUB_STEP_SUMMARY

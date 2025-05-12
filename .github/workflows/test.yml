@@ -8,74 +8,204 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      node_version:
+        description: 'Node.js version'
+        required: false
+        default: '18'
+        type: string
+      aws_region:
+        description: 'AWS region'
+        required: false
+        default: 'us-east-1'
+        type: string
 
 jobs:
+  # Setup Node.js and npm dependencies once
+  setup:
+    name: Setup Environment
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ github.event.inputs.node_version || '18' }}
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+
+  # Validate the action.yml file format and structure
   validate-action:
     name: Validate action.yml
+    needs: setup
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-
-      - name: Install and validate
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ github.event.inputs.node_version || '18' }}
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Validate action.yml
         run: |
-          make docker-dev-env
-          docker compose exec -T test-runner npm install
-          make validate
+          echo "Validating action.yml format and structure..."
+          cat action.yml | node -e "
+            try {
+              const yaml = require('yaml');
+              const content = require('fs').readFileSync(0, 'utf8');
+              const parsedYaml = yaml.parse(content);
+              
+              // Check required fields
+              const requiredFields = ['name', 'description', 'runs'];
+              for (const field of requiredFields) {
+                if (!parsedYaml[field]) {
+                  throw new Error(`Missing required field '${field}' in action.yml`);
+                }
+              }
+              
+              // Check inputs
+              if (!parsedYaml.inputs) {
+                console.warn('Warning: No inputs defined in action.yml');
+              }
+              
+              console.log('Action validation successful!');
+            } catch (error) {
+              console.error('Error validating action.yml:', error.message);
+              process.exit(1);
+            }
+          "
 
+  # Run ESLint checks
   lint:
     name: Run linters
+    needs: setup
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ github.event.inputs.node_version || '18' }}
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Run ESLint
+        run: npm run lint
 
-      - name: Run linters
-        run: |
-          make docker-dev-env
-          docker compose exec -T test-runner npm install
-          make lint
-
+  # Run unit tests
   unit-tests:
     name: Run unit tests
+    needs: setup
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ github.event.inputs.node_version || '18' }}
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
       - name: Run unit tests
-        run: |
-          make docker-dev-env
-          docker compose exec -T test-runner npm install
-          make test-unit
+        run: npm run test:unit
+      
+      - name: Upload test coverage
+        if: success()
+        uses: actions/upload-artifact@v3
+        with:
+          name: unit-test-coverage
+          path: coverage/
+          retention-days: 5
 
+  # Run integration tests with LocalStack
   integration-tests:
     name: Run integration tests with LocalStack
+    needs: setup
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ github.event.inputs.node_version || '18' }}
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      # Setup LocalStack using reusable workflow
+      - uses: ./.github/workflows/setup-localstack.yml
+        id: localstack
+        with:
+          wait_time: 30
+          max_retries: 10
+          aws_region: ${{ github.event.inputs.aws_region || 'us-east-1' }}
 
-      - name: Setup environment and run integration tests
+      - name: Run integration tests
+        if: steps.localstack.outputs.status != 'failure'
         run: |
-          make docker-dev-env
-          echo "Waiting for LocalStack to be ready..."
-          sleep 10
-          docker compose exec -T test-runner npm install
-          make test-integration
+          export DOCKER_ENV=true
+          export CHAMBER_AWS_SSM_ENDPOINT=http://localhost:4566
+          npm run test:integration
+      
+      - name: Clean up Docker resources
+        if: always()
+        run: docker compose down || true
 
-  # Comprehensive test of the action with different configurations
+  # Test Action with different configurations (parallel jobs)
   test-action-configs:
     name: Test Action Configurations
     needs: [validate-action, lint, unit-tests]
     uses: ./.github/workflows/test-action-configs.yml
+    with:
+      aws_region: ${{ github.event.inputs.aws_region || 'us-east-1' }}
+      timeout: 10
 
-  # Clean up at the end of all jobs
-  cleanup:
-    name: Clean up resources
+  # Generate final report
+  report:
+    name: Test Report
     runs-on: ubuntu-latest
     needs: [integration-tests, test-action-configs]
     if: always()
     steps:
-      - name: Cleanup Docker resources
-        run: docker compose down || true
+      - name: Generate GitHub workflow report
+        run: |
+          echo "## GitHub Action Test Report" >> $GITHUB_STEP_SUMMARY
+          echo "### Jobs Status" >> $GITHUB_STEP_SUMMARY
+          echo "- **Setup**: ${{ needs.setup.result || 'Did not run' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Validate Action**: ${{ needs.validate-action.result || 'Did not run' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Lint**: ${{ needs.lint.result || 'Did not run' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Unit Tests**: ${{ needs.unit-tests.result || 'Did not run' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Integration Tests**: ${{ needs.integration-tests.result || 'Did not run' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Action Configurations**: ${{ needs.test-action-configs.result || 'Did not run' }}" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Test Summary" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ needs.validate-action.result }}" == "success" && \
+                "${{ needs.lint.result }}" == "success" && \
+                "${{ needs.unit-tests.result }}" == "success" && \
+                "${{ needs.integration-tests.result }}" == "success" && \
+                "${{ needs.test-action-configs.result }}" == "success" ]]; then
+            echo "✅ All tests passed successfully!" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Some tests failed or were skipped. See individual job results for details." >> $GITHUB_STEP_SUMMARY
+          fi

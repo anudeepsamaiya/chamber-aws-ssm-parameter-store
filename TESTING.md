@@ -40,40 +40,54 @@ The repository uses Jest for both unit and integration tests with different conf
 
 ## GitHub Actions Workflow Structure
 
-The testing infrastructure consists of several workflows:
+### Reusable Workflow Components
 
-### 1. Main CI/CD Pipeline (`.github/workflows/test.yml`)
+The testing infrastructure consists of several reusable components:
 
-- Runs on all pushes to the main branch, pull requests, and manual triggers
-- Validates the action.yml format
-- Runs linters on the codebase
-- Runs unit tests
-- Runs integration tests with LocalStack
-- Tests the GitHub Action with various configurations
-- Provides comprehensive testing for all code changes
+1. **`setup-node-docker.yml`**
+   - Sets up Node.js with caching
+   - Configures Docker with buildx
+   - Provides consistent environment for all jobs
 
-### 2. Example Workflow (`.github/workflows/use-chamber-fetch-ssm-secrets.yml`)
+2. **`setup-localstack.yml`**
+   - Sets up LocalStack container
+   - Configures AWS CLI for LocalStack
+   - Sets up test parameters
+   - Handles health checks and timeout
+   - Provides status output for conditional job execution
 
-- Example workflow for users to understand how to use the action
-- Only runs on manual workflow dispatch
-- Demonstrates:
-  - How to configure AWS credentials
-  - How to fetch SSM parameters with different options
-  - How to use the parameters in subsequent steps
+3. **`test-action-configs.yml`**
+   - Runs tests for different action configurations in parallel
+   - Tests namespaced parameters
+   - Tests non-namespaced parameters
+   - Tests custom parameter mappings
+   - Tests action standards compliance
+   - Provides summary report
 
-### 3. Local Testing Workflow (`tests/workflows/test-action.yml`)
+### Main Workflows
 
-- Designed to be run locally with the `act` tool
-- Tests the action in a local environment
-- Primarily used for development and testing without GitHub
+1. **Main CI/CD Pipeline (`.github/workflows/test.yml`)**
+   - Runs on all pushes to main, pull requests, and manual triggers
+   - Configurable Node.js version and AWS region
+   - Sets up dependencies with caching
+   - Validates the action.yml format
+   - Runs linters on the codebase
+   - Runs unit tests with coverage reporting
+   - Runs integration tests with LocalStack
+   - Tests the action with different configurations in parallel
+   - Provides comprehensive test reports
 
-### 4. Reusable Workflows
+2. **Example Workflow (`.github/workflows/use-chamber-fetch-ssm-secrets.yml`)**
+   - Example workflow for users to understand how to use the action
+   - Configurable parameters through workflow_dispatch inputs
+   - Demonstrates multiple usage patterns
+   - Shows both namespaced and non-namespaced examples
 
-- **`setup-localstack.yml`**: Sets up LocalStack and test parameters
-- **`test-action-configs.yml`**: Tests the action with different configuration options
-  - Namespaced parameters
-  - Non-namespaced parameters
-  - Custom parameter mappings
+3. **Local Testing Workflow (`tests/workflows/test-action.yml`)**
+   - Designed to be run locally with the `act` tool
+   - Complete end-to-end testing of the action
+   - Configurable timeouts and versions
+   - Improved error handling and diagnostics
 
 ## Docker Environment
 
@@ -117,7 +131,7 @@ To test the GitHub Action locally with act:
 1. Install [nektos/act](https://github.com/nektos/act)
 2. Run the local testing workflow:
    ```bash
-   act -j test-action -W tests/workflows/test-action.yml
+   act -j test-action-locally -W tests/workflows/test-action.yml
    ```
 
 ## Integration Testing Notes
@@ -129,6 +143,36 @@ To test the GitHub Action locally with act:
   - AWS credentials set (automatically done in Docker)
   - Test parameters created in SSM Parameter Store
 
+## Workflow Improvements
+
+Recent improvements to the workflow structure:
+
+1. **Enhanced Caching Strategy**
+   - Added Node.js module caching
+   - Implemented Docker image caching
+   - Using npm ci for more reliable installs
+
+2. **Parallel Job Execution**
+   - Split test-action-configs into parallel jobs
+   - Configuration tests now run simultaneously
+   - Faster feedback cycle for test failures
+
+3. **Improved Error Handling**
+   - Enhanced parameter validation
+   - Added better error tracking and reporting
+   - Improved cleanup with appropriate conditionals
+   - Added timeout to prevent hanging on failed service startup
+
+4. **Configurable Workflows**
+   - Added workflow_dispatch inputs for custom configuration
+   - Made Node.js version and wait times configurable
+   - Parameterized common settings
+
+5. **Better Documentation**
+   - Workflow files include detailed comments
+   - Improved step descriptions
+   - Better job naming for clarity
+
 ## Best Practices
 
 1. **Unit Test First**: Cover core functionality with unit tests
@@ -136,3 +180,6 @@ To test the GitHub Action locally with act:
 3. **Integration Test for Verification**: Use integration tests to verify real service behavior
 4. **Consistent Configuration**: Use base configuration to ensure testing consistency
 5. **Environment Awareness**: Use environment flags to skip tests when resources are unavailable
+6. **Parallel Testing**: Run tests in parallel when possible
+7. **Proper Cleanup**: Ensure resources are cleaned up even when tests fail
+8. **Comprehensive Reporting**: Generate detailed test reports for analysis

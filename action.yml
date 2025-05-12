@@ -68,26 +68,56 @@ runs:
     - name: Fetch and set SSM parameters as env variables
       shell: bash
       run: |
+        # Set error handling
+        set -eo pipefail
+
+        # Initialize counter for parameter processing
+        total_params=0
+        processed_params=0
+        failed_params=0
+
+        # Count total parameters for reporting
+        while IFS= read -r line || [[ -n "$line" ]]; do
+          [[ -z "$line" ]] && continue
+          ((total_params++))
+        done <<< "${{ inputs.parameters }}"
+
+        # Process each parameter
         echo "${{ inputs.parameters }}" | while IFS= read -r ssm_param_name || [[ -n "$ssm_param_name" ]]; do
           [[ -z "$ssm_param_name" ]] && continue
+          ((processed_params++))
 
-              # Extract parameter path and optional custom name (format: /path/to/param:CUSTOM_NAME)
+          # Extract parameter path and optional custom name (format: /path/to/param:CUSTOM_NAME)
           param=${ssm_param_name%%:*}            # Everything before colon - SSM parameter path
           custom_env_var=${ssm_param_name#*:}    # Everything after colon - custom env var name
           [[ "$param" == "$custom_env_var" ]] && custom_env_var=""  # If no colon, clear custom name
 
-          echo "Fetching parameter: $param"
+          echo "Fetching parameter ($processed_params/$total_params): $param"
+
+          # Parameter validation
+          if [[ ! "$param" =~ ^/ ]]; then
+            echo "::error::Parameter path must start with a forward slash: $param"
+            ((failed_params++))
+            continue
+          fi
 
           # Split parameter path into service and key format required by Chamber
           service=$(echo "$param" | sed 's/^\///' | cut -d'/' -f1)  # First part after leading slash
           key=$(echo "$param" | sed "s/^\/$service\///;s/^$service\///")  # Everything after service
 
-          # Fetch the parameter value using Chamber with quiet flag (value only)
-          value=$(chamber read -q "$service" "$key")
-          if [ $? -ne 0 ]; then
-            echo "Error: Failed to fetch parameter $param"
-            exit 1
+          if [[ -z "$service" || -z "$key" ]]; then
+            echo "::error::Invalid parameter format. Must be /service/key: $param"
+            ((failed_params++))
+            continue
           fi
+
+          # Fetch the parameter value using Chamber with quiet flag (value only)
+          # Use timeout to prevent hanging if parameter fetch takes too long
+          value=$(timeout 30s chamber read -q "$service" "$key" 2>/dev/null) || {
+            echo "::error::Failed to fetch parameter: $param"
+            ((failed_params++))
+            continue
+          }
 
           # Transform SSM parameter path to environment variable name
           prefix=$(echo "$param" | sed 's|^/||' | cut -d'/' -f1 | tr 'a-z' 'A-Z' | tr '-' '_')  # First path segment
@@ -105,7 +135,21 @@ runs:
             env_name="${prefix}_${param_name}"
           fi
 
+          # Validate environment variable name
+          if [[ ! "$env_name" =~ ^[A-Z][A-Z0-9_]*$ ]]; then
+            echo "::warning::Environment variable name $env_name has been converted to uppercase and special characters replaced with underscores"
+            env_name=$(echo "$env_name" | tr '[:lower:]' '[:upper:]' | tr -c '[:alnum:]_' '_')
+          fi
+
           # Export the parameter to GitHub environment
           echo "Setting parameter $param as $env_name"
           echo "$env_name=$value" >> $GITHUB_ENV
         done
+
+        echo "Parameter processing completed: $processed_params/$total_params parameters processed."
+
+        # Exit with error if any parameters failed to be retrieved
+        if [[ $failed_params -gt 0 ]]; then
+          echo "::error::Failed to fetch $failed_params parameter(s)"
+          exit 1
+        fi

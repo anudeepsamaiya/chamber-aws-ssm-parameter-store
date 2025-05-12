@@ -2,118 +2,256 @@ name: Test Action Configurations
 
 on:
   workflow_call:
+    inputs:
+      aws_region:
+        description: 'AWS region to use'
+        required: false
+        type: string
+        default: 'us-east-1'
+      timeout:
+        description: 'Test timeout in minutes'
+        required: false
+        type: number
+        default: 5
 
 jobs:
-  test-action-configs:
-    name: Test Action With Different Configurations
+  # Common setup job - sets up LocalStack just once
+  setup:
+    name: Setup Test Environment
     runs-on: ubuntu-latest
+    outputs:
+      endpoint_url: ${{ steps.setup_result.outputs.endpoint_url }}
+      status: ${{ steps.setup_result.outputs.status }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Setup LocalStack
-        run: |
-          make docker-dev-env
-          echo "Waiting for LocalStack to be ready..."
-          sleep 10
+      # Setup Node.js for better GitHub Actions caching
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+        
+      # Call reusable workflow for LocalStack setup
+      - uses: ./.github/workflows/setup-localstack.yml
+        id: setup_localstack
+        with:
+          wait_time: 30
+          max_retries: 10
+          aws_region: ${{ inputs.aws_region }}
           
-          # Configure AWS CLI
-          aws configure set aws_access_key_id test
-          aws configure set aws_secret_access_key test
-          aws configure set region us-east-1
-          aws configure set output json
-          
-          # Set environment variables
-          echo "AWS_ACCESS_KEY_ID=test" >> $GITHUB_ENV
-          echo "AWS_SECRET_ACCESS_KEY=test" >> $GITHUB_ENV
-          echo "AWS_REGION=us-east-1" >> $GITHUB_ENV
-          echo "CHAMBER_AWS_SSM_ENDPOINT=http://localhost:4566" >> $GITHUB_ENV
-
-      - name: Create test parameters
+      - name: Record setup result
+        id: setup_result
         run: |
-          export TEST_PARAM_1="/test-action/param1"
-          export TEST_PARAM_2="/test-action/param2"
-          export TEST_VALUE_1="value1"
-          export TEST_VALUE_2="value2"
+          echo "endpoint_url=http://localhost:4566" >> $GITHUB_OUTPUT
+          echo "status=${{ steps.setup_localstack.outputs.status }}" >> $GITHUB_OUTPUT
 
-          # Set parameters in LocalStack
-          aws --endpoint-url=http://localhost:4566 --region us-east-1 ssm put-parameter \
-            --name "$TEST_PARAM_1" --value "$TEST_VALUE_1" --type String --overwrite
-          aws --endpoint-url=http://localhost:4566 --region us-east-1 ssm put-parameter \
-            --name "$TEST_PARAM_2" --value "$TEST_VALUE_2" --type String --overwrite
+  # Test namespaced parameters configuration
+  test-namespaced:
+    name: Test Action with Namespaced Parameters
+    runs-on: ubuntu-latest
+    needs: setup
+    if: needs.setup.outputs.status != 'failure'
+    timeout-minutes: ${{ inputs.timeout }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
 
+      # Use the same Docker setup as in the setup job
+      - name: Restore LocalStack state
+        uses: ./.github/workflows/setup-localstack.yml
+        with:
+          aws_region: ${{ inputs.aws_region }}
+      
       # Test 1: Namespaced parameters
       - name: Test action with namespaced parameters
+        id: namespaced_test
         uses: ./
         with:
           parameters: |
             /test-action/param1
             /test-action/param2
           namespaced: 'true'
-          aws-region: 'us-east-1'
+          aws-region: ${{ inputs.aws_region }}
           aws-access-key-id: 'test'
           aws-secret-access-key: 'test'
 
       - name: Verify namespaced environment variables
         run: |
+          echo "Testing namespaced parameters..."
           if [ "$TEST_ACTION_PARAM1" != "value1" ]; then
-            echo "Namespaced test failed: TEST_ACTION_PARAM1 = $TEST_ACTION_PARAM1, expected value1"
+            echo "::error::Namespaced test failed: TEST_ACTION_PARAM1 = $TEST_ACTION_PARAM1, expected value1"
             exit 1
           fi
           if [ "$TEST_ACTION_PARAM2" != "value2" ]; then
-            echo "Namespaced test failed: TEST_ACTION_PARAM2 = $TEST_ACTION_PARAM2, expected value2"
+            echo "::error::Namespaced test failed: TEST_ACTION_PARAM2 = $TEST_ACTION_PARAM2, expected value2"
             exit 1
           fi
-          echo "Namespaced test passed!"
+          echo "✅ Namespaced parameters test passed!"
 
+      - name: Clean up
+        if: always()
+        run: docker compose down || true
+
+  # Test non-namespaced parameters configuration
+  test-non-namespaced:
+    name: Test Action with Non-Namespaced Parameters
+    runs-on: ubuntu-latest
+    needs: setup
+    if: needs.setup.outputs.status != 'failure'
+    timeout-minutes: ${{ inputs.timeout }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # Use the same Docker setup as in the setup job
+      - name: Restore LocalStack state
+        uses: ./.github/workflows/setup-localstack.yml
+        with:
+          aws_region: ${{ inputs.aws_region }}
+      
       # Test 2: Non-namespaced parameters
       - name: Test action with non-namespaced parameters
+        id: non_namespaced_test
         uses: ./
         with:
           parameters: |
             /test-action/param1
             /test-action/param2
           namespaced: 'false'
-          aws-region: 'us-east-1'
+          aws-region: ${{ inputs.aws_region }}
           aws-access-key-id: 'test'
           aws-secret-access-key: 'test'
 
       - name: Verify non-namespaced environment variables
         run: |
+          echo "Testing non-namespaced parameters..."
           if [ "$PARAM1" != "value1" ]; then
-            echo "Non-namespaced test failed: PARAM1 = $PARAM1, expected value1"
+            echo "::error::Non-namespaced test failed: PARAM1 = $PARAM1, expected value1"
             exit 1
           fi
           if [ "$PARAM2" != "value2" ]; then
-            echo "Non-namespaced test failed: PARAM2 = $PARAM2, expected value2"
+            echo "::error::Non-namespaced test failed: PARAM2 = $PARAM2, expected value2"
             exit 1
           fi
-          echo "Non-namespaced test passed!"
+          echo "✅ Non-namespaced parameters test passed!"
 
+      - name: Clean up
+        if: always()
+        run: docker compose down || true
+
+  # Test custom parameter mapping configuration  
+  test-custom-mapping:
+    name: Test Action with Custom Parameter Mappings
+    runs-on: ubuntu-latest
+    needs: setup
+    if: needs.setup.outputs.status != 'failure'
+    timeout-minutes: ${{ inputs.timeout }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # Use the same Docker setup as in the setup job
+      - name: Restore LocalStack state
+        uses: ./.github/workflows/setup-localstack.yml
+        with:
+          aws_region: ${{ inputs.aws_region }}
+      
       # Test 3: Custom parameter mappings
       - name: Test action with custom parameter mappings
+        id: custom_mapping_test
         uses: ./
         with:
           parameters: |
             /test-action/param1:CUSTOM_PARAM_1
             /test-action/param2:CUSTOM_PARAM_2
           namespaced: 'true'
-          aws-region: 'us-east-1'
+          aws-region: ${{ inputs.aws_region }}
           aws-access-key-id: 'test'
           aws-secret-access-key: 'test'
 
       - name: Verify custom parameter mappings
         run: |
+          echo "Testing custom parameter mappings..."
           if [ "$CUSTOM_PARAM_1" != "value1" ]; then
-            echo "Custom mapping test failed: CUSTOM_PARAM_1 = $CUSTOM_PARAM_1, expected value1"
+            echo "::error::Custom mapping test failed: CUSTOM_PARAM_1 = $CUSTOM_PARAM_1, expected value1"
             exit 1
           fi
           if [ "$CUSTOM_PARAM_2" != "value2" ]; then
-            echo "Custom mapping test failed: CUSTOM_PARAM_2 = $CUSTOM_PARAM_2, expected value2"
+            echo "::error::Custom mapping test failed: CUSTOM_PARAM_2 = $CUSTOM_PARAM_2, expected value2"
             exit 1
           fi
-          echo "Custom mapping test passed!"
+          echo "✅ Custom parameter mappings test passed!"
 
       - name: Clean up
         if: always()
-        run: docker compose down
+        run: docker compose down || true
+
+  # Test for compliance with GitHub regulations
+  action-standards:
+    name: Test Action Compliance with GitHub Standards
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Validate action.yml format
+        run: |
+          echo "Validating action.yml format..."
+          cat action.yml | yq eval . - > /dev/null
+          
+      - name: Check required fields
+        run: |
+          echo "Checking required action.yml fields..."
+          # Check that name is present
+          if ! grep -q "^name:" action.yml; then
+            echo "::error::Missing required field 'name' in action.yml"
+            exit 1
+          fi
+          
+          # Check that description is present
+          if ! grep -q "^description:" action.yml; then
+            echo "::error::Missing required field 'description' in action.yml"
+            exit 1
+          fi
+          
+          # Check that runs section is present
+          if ! grep -q "^runs:" action.yml; then
+            echo "::error::Missing required field 'runs' in action.yml"
+            exit 1
+          fi
+          
+          echo "✅ Action.yml validation passed"
+
+  # Final job to aggregate results
+  summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [setup, test-namespaced, test-non-namespaced, test-custom-mapping, action-standards]
+    if: always()
+    steps:
+      - name: Generate test report
+        run: |
+          echo "## Action Test Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Setup**: ${{ needs.setup.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Namespaced Parameters**: ${{ needs.test-namespaced.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Non-Namespaced Parameters**: ${{ needs.test-non-namespaced.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Custom Parameter Mappings**: ${{ needs.test-custom-mapping.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Action Standards**: ${{ needs.action-standards.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
+          
+          # Determine overall status
+          if [[ "${{ needs.setup.result }}" == "success" && \
+                "${{ needs.test-namespaced.result }}" == "success" && \
+                "${{ needs.test-non-namespaced.result }}" == "success" && \
+                "${{ needs.test-custom-mapping.result }}" == "success" && \
+                "${{ needs.action-standards.result }}" == "success" ]]; then
+            echo "✅ All tests passed successfully!" >> $GITHUB_STEP_SUMMARY
+            echo "::notice::All action configuration tests passed!"
+          else
+            echo "❌ Some tests failed or were skipped. See individual job results for details." >> $GITHUB_STEP_SUMMARY
+            echo "::warning::Some action configuration tests failed or were skipped."
+          fi
