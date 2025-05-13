@@ -1,7 +1,6 @@
 # Setup Chamber and Fetch AWS SSM Parameters
 
-[![Code Quality](https://github.com/anudeepsamaiya/chamber-aws-ssm-parameter-store/actions/workflows/code-quality.yml/badge.svg)](https://github.com/anudeepsamaiya/chamber-aws-ssm-parameter-store/actions/workflows/code-quality.yml)
-[![Functional Tests](https://github.com/anudeepsamaiya/chamber-aws-ssm-parameter-store/actions/workflows/functional-tests.yml/badge.svg)](https://github.com/anudeepsamaiya/chamber-aws-ssm-parameter-store/actions/workflows/functional-tests.yml)
+[![Tests](https://github.com/anudeepsamaiya/chamber-aws-ssm-parameter-store/actions/workflows/tests.yml/badge.svg)](https://github.com/anudeepsamaiya/chamber-aws-ssm-parameter-store/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 GitHub Action that securely retrieves AWS SSM parameters using [Chamber](https://github.com/segmentio/chamber) and exports them as environment variables in your workflow.
@@ -205,9 +204,10 @@ This will:
 ### Testing
 
 ```bash
-make test              # Run all tests (unit + integration) in Docker
+make test              # Run all unit and integration tests in Docker
 make test-unit         # Run only unit tests in Docker
 make test-integration  # Run only integration tests with LocalStack
+make test-all          # Run ALL tests (unit, integration, and GitHub Actions workflow tests)
 make lint              # Run ESLint
 make validate          # Validate action.yml format
 ```
@@ -216,18 +216,19 @@ make validate          # Validate action.yml format
 
 This project uses optimized GitHub Actions workflows for testing and CI/CD:
 
-1. **Code Quality** - Validates action configuration and runs linters
-2. **Functional Tests** - Runs all test types:
+1. **Lint & Validate** - Validates action configuration and runs linters
+2. **Tests** - Runs all test types:
    - Unit tests for isolated functionality
    - Integration tests with LocalStack
    - Configuration tests for different parameter setups
-3. **Summary** - Aggregates results from other workflows
-4. **Usage Example** - Demonstrates action usage in real workflows
+3. **Usage Example** - Demonstrates action usage in real workflows
 
 To test locally with GitHub Actions:
 
 ```bash
-make local-action-test  # Run the action locally using Act
+make act-test  # Test GitHub Actions workflow in Docker
+# OR
+make test-all  # Run ALL tests (GitHub Actions, unit, and integration tests)
 ```
 
 

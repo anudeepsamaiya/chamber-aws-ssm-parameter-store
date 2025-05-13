@@ -19,4 +19,25 @@ services:
       interval: 3s
       timeout: 5s
       retries: 10
-      start_period: 5s
+      start_period: 10s
+
+  # Test runner container
+  test-runner:
+    image: node:18
+    depends_on:
+      localstack:
+        condition: service_healthy
+    working_dir: /app
+    volumes:
+      - .:/app
+    environment:
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - CHAMBER_AWS_SSM_ENDPOINT=http://localstack:4566
+      - TEST_PARAM_1=/test-action/param1
+      - TEST_PARAM_2=/test-action/param2
+      - TEST_VALUE_1=value1
+      - TEST_VALUE_2=value2
+      - DOCKER_ENV=true
+    entrypoint: ["tail", "-f", "/dev/null"]

@@ -5,12 +5,13 @@
 # to enable integration testing with LocalStack for AWS service simulation.
 
 # Mark all targets as phony (not representing files)
-.PHONY: setup test test-unit test-integration lint validate clean help docker-dev-env ensure-lock
+.PHONY: setup test test-unit test-integration lint validate clean help docker-dev-env ensure-lock setup-test-params test-unit-local test-integration-local lint-local validate-local act-test install-chamber test-all
 
 # Variables for tool commands
 DOCKER ?= docker
 NPM ?= npm
 CHAMBER_VERSION ?= 2.10.12
+ACT_IMAGE ?= nektos/act-environments-ubuntu:18.04
 
 # Default target
 .DEFAULT_GOAL := help
@@ -21,14 +22,16 @@ help:
 	@echo ""
 	@echo "Targets:"
 	@echo "  setup              Install dependencies"
-	@echo "  test               Run all tests"
-	@echo "  test-unit          Run unit tests only"
-	@echo "  test-integration   Run integration tests only"
-	@echo "  lint               Run linters"
-	@echo "  validate           Validate action.yml format"
-	@echo "  ensure-lock        Ensure package-lock.json exists"
-	@echo "  docker-dev-env     Start interactive Docker development environment with LocalStack"
-	@echo "  local-action-test  Test the action locally using act"
+	@echo "  test               Run all unit and integration tests in Docker"
+	@echo "  test-unit          Run unit tests only in Docker"
+	@echo "  test-integration   Run integration tests only in Docker"
+	@echo "  test-all           Run all tests (GitHub Actions, unit, and integration tests)"
+	@echo "  lint               Run linters in Docker"
+	@echo "  validate           Validate action.yml format in Docker"
+	@echo "  docker-dev-env     Start interactive Docker environment with LocalStack"
+	@echo "  setup-test-params  Set up test parameters in LocalStack"
+	@echo "  act-test           Test GitHub Actions workflow in Docker"
+	@echo "  install-chamber    Install Chamber CLI locally"
 	@echo "  clean              Clean up temporary files"
 	@echo "  help               Display this help message"
 
@@ -73,13 +76,6 @@ lint:
 	$(DOCKER) compose exec test-runner npm run lint
 	$(DOCKER) compose down
 
-# Fix linting issues using Docker
-lint-fix:
-	$(DOCKER) compose up -d
-	@echo "Fixing linting issues in Docker container..."
-	$(DOCKER) compose exec test-runner npm run lint:fix
-	$(DOCKER) compose down
-
 # Validate action.yml using Docker
 validate:
 	$(DOCKER) compose up -d
@@ -94,14 +90,49 @@ docker-dev-env:
 	@echo "LocalStack is available at: http://localhost:4566"
 	@echo "To access the test container shell: docker compose exec test-runner sh"
 	@echo "To stop the environment: docker compose down"
-
-# Test GitHub Action locally using act
-local-action-test:
-	@if ! command -v $(ACT) > /dev/null; then \
-		echo "Error: act is not installed. Install from https://github.com/nektos/act"; \
+	
+	@# Wait for LocalStack to be ready
+	@echo "Waiting for LocalStack to be ready..."
+	@count=0; \
+	max_attempts=15; \
+	while [ $$count -lt $$max_attempts ]; do \
+		if curl -s http://localhost:4566/health?services=ssm | grep -q '"ssm": "running"'; then \
+			echo "✅ LocalStack is ready!"; \
+			break; \
+		fi; \
+		echo "Waiting for LocalStack... (attempt $$((count + 1))/$$max_attempts)"; \
+		sleep 2; \
+		count=$$((count + 1)); \
+	done; \
+	if [ $$count -eq $$max_attempts ]; then \
+		echo "LocalStack did not start properly within timeout"; \
 		exit 1; \
 	fi
-	$(ACT) -j test-action -W tests/workflows/test-action.yml
+	
+	@# Set up test parameters
+	@echo "Setting up test parameters..."
+	$(MAKE) setup-test-params
+
+
+# Test GitHub Action using act in Docker directly
+act-test:
+	@echo "Running GitHub Actions tests using act..."
+	@# First, ensure we have the test directory structure
+	mkdir -p /tmp/act-tests
+
+	@# Use docker run with act to execute GitHub Actions workflow
+	$(DOCKER) run --rm \
+		-v $(shell pwd):/app \
+		-v /var/run/docker.sock:/var/run/docker.sock \
+		-v /tmp/act-tests:/tmp/act-tests \
+		-w /app \
+		--privileged \
+		$(ACT_IMAGE) \
+		bash -c "curl -s https://raw.githubusercontent.com/nektos/act/master/install.sh | bash -s -- -b /usr/local/bin && cd /app && act -j local-test -W tests/workflows/test-action.yml -P ubuntu-latest=$(ACT_IMAGE)"
+
+# Run all tests (unit, integration, and GitHub Actions tests)
+test-all: act-test test
+	@echo "All tests completed successfully!"
 
 # Install chamber locally (for development/testing)
 install-chamber:
@@ -111,6 +142,31 @@ install-chamber:
 	chmod +x /tmp/chamber/chamber
 	sudo mv /tmp/chamber/chamber /usr/local/bin/chamber
 	@echo "Chamber installed successfully. Run 'chamber version' to verify."
+
+# Set up test parameters in LocalStack
+setup-test-params:
+	@echo "Setting up test parameters in LocalStack..."
+	@AWS_ENDPOINT_URL=$${AWS_ENDPOINT_URL:-http://localhost:4566}; \
+	TEST_PARAM_1=$${TEST_PARAM_1:-"/test-action/param1"}; \
+	TEST_PARAM_2=$${TEST_PARAM_2:-"/test-action/param2"}; \
+	TEST_VALUE_1=$${TEST_VALUE_1:-"value1"}; \
+	TEST_VALUE_2=$${TEST_VALUE_2:-"value2"}; \
+	\
+	echo "Checking LocalStack health..."; \
+	if ! curl -s $$AWS_ENDPOINT_URL/health?services=ssm | grep -q '"ssm": "running"'; then \
+		echo "LocalStack SSM service is not running. Please check your setup."; \
+		exit 1; \
+	fi; \
+	\
+	echo "Creating test parameters..."; \
+	aws --endpoint-url=$$AWS_ENDPOINT_URL ssm put-parameter \
+		--name "$$TEST_PARAM_1" --value "$$TEST_VALUE_1" --type String --overwrite; \
+	aws --endpoint-url=$$AWS_ENDPOINT_URL ssm put-parameter \
+		--name "$$TEST_PARAM_2" --value "$$TEST_VALUE_2" --type String --overwrite; \
+	\
+	echo "Parameters created successfully."; \
+	echo "To verify, run: aws --endpoint-url=$$AWS_ENDPOINT_URL ssm get-parameter --name $$TEST_PARAM_1 --query Parameter.Value --output text"
+
 
 # Clean up temporary files
 clean:
