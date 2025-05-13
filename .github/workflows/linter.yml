@@ -1,0 +1,59 @@
+name: Lint & Validate
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '18'
+
+jobs:
+  quality-checks:
+    name: Quality Checks
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        check: [validate, lint]
+      fail-fast: false
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: make setup
+      
+      - name: Run validation
+        id: validate
+        if: matrix.check == 'validate'
+        run: make validate-local
+      
+      - name: Run linters
+        id: lint
+        if: matrix.check == 'lint'
+        run: make lint-local
+      
+      - name: Generate validation summary
+        if: matrix.check == 'validate' && always()
+        run: |
+          echo "## Validation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Action Config**: ${{ steps.validate.outcome || 'Unknown' }}" >> $GITHUB_STEP_SUMMARY
+      
+      - name: Generate lint summary
+        if: matrix.check == 'lint' && always()
+        run: |
+          echo "## Lint Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **ESLint**: ${{ steps.lint.outcome || 'Unknown' }}" >> $GITHUB_STEP_SUMMARY

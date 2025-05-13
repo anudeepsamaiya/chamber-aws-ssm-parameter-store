@@ -1,6 +1,6 @@
 # Setup Chamber and Fetch AWS SSM Parameters
 
-[![Test](https://github.com/anudeepsamaiya/chamber-aws-ssm-parameter-store/actions/workflows/test.yml/badge.svg)](https://github.com/anudeepsamaiya/chamber-aws-ssm-parameter-store/actions/workflows/test.yml)
+[![Tests](https://github.com/anudeepsamaiya/chamber-aws-ssm-parameter-store/actions/workflows/tests.yml/badge.svg)](https://github.com/anudeepsamaiya/chamber-aws-ssm-parameter-store/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 GitHub Action that securely retrieves AWS SSM parameters using [Chamber](https://github.com/segmentio/chamber) and exports them as environment variables in your workflow.
@@ -204,11 +204,32 @@ This will:
 ### Testing
 
 ```bash
-make test              # Run all tests (unit + integration) in Docker
+make test              # Run all unit and integration tests in Docker
 make test-unit         # Run only unit tests in Docker
 make test-integration  # Run only integration tests with LocalStack
+make test-all          # Run ALL tests (unit, integration, and GitHub Actions workflow tests)
 make lint              # Run ESLint
 make validate          # Validate action.yml format
+```
+
+### GitHub Workflows
+
+This project uses optimized GitHub Actions workflows for testing and CI/CD:
+
+1. **Lint & Validate** - Validates action configuration and runs linters
+2. **Tests** - Runs all test types:
+   - Unit tests for isolated functionality
+   - Integration tests with LocalStack
+   - Configuration tests for different parameter setups
+3. **Usage Example** - Demonstrates action usage in real workflows
+
+To test locally (all commands use Docker):
+
+```bash
+make test-unit        # Run only unit tests
+make test-integration # Run only integration tests with LocalStack
+make test             # Run all tests (unit + integration)
+make test-all         # Run ALL tests in sequence
 ```
 
 

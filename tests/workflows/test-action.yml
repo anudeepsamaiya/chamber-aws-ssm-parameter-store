@@ -1,129 +1,159 @@
-name: Test Action Locally
+name: Local Test
+
+# This workflow is designed for local testing with 'act'
+# https://github.com/nektos/act
+#
+# Run with: act -j local-test -W tests/workflows/test-action.yml
 
 on:
   workflow_dispatch:
-  # For local testing with act: https://github.com/nektos/act
-  # Run with: act -j test-action
 
 env:
+  NODE_VERSION: '18'
+  AWS_ACCESS_KEY_ID: test
+  AWS_SECRET_ACCESS_KEY: test
+  AWS_REGION: 'us-east-1'
   TEST_PARAM_1: "/test-action/param1"
   TEST_PARAM_2: "/test-action/param2"
   TEST_VALUE_1: "value1"
   TEST_VALUE_2: "value2"
+  DOCKER_ENV: true
+  CHAMBER_VERSION: "2.10.12"
 
 jobs:
-  test-action:
+  local-test:
+    name: Local Action Test
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Setup LocalStack
+      # Setup LocalStack with combined approach
+      - name: Start LocalStack and setup test parameters
         run: |
-          docker compose up -d localstack
-          until curl -s http://localhost:4566/health?services=ssm | grep -q '"ssm": "running"'; do
-            sleep 1
+          echo "Starting LocalStack..."
+          make docker-dev-env
+          
+          # Wait for LocalStack
+          echo "Waiting for LocalStack to be ready..."
+          count=0
+          max_attempts=20
+          
+          while [ $count -lt $max_attempts ]; do
+            if curl -s http://localhost:4566/health?services=ssm | grep -q '"ssm": "running"'; then
+              echo "✅ LocalStack is ready!"
+              break
+            fi
+            echo "Waiting for LocalStack... (attempt $(( count + 1 ))/$max_attempts)"
+            sleep 2
+            count=$((count + 1))
           done
+          
+          if [ $count -eq $max_attempts ]; then
+            echo "::error::LocalStack did not start properly within timeout"
+            exit 1
+          fi
+
+          # Configure AWS CLI
           aws configure set aws_access_key_id test
           aws configure set aws_secret_access_key test
-          aws configure set region us-east-1
+          aws configure set region ${{ env.AWS_REGION }}
           aws configure set output json
           aws configure set endpoint_url http://localhost:4566
 
-      # Create test parameters in LocalStack
-      - name: Create test parameters
-        run: |
-          aws --endpoint-url=http://localhost:4566 ssm put-parameter --name "$TEST_PARAM_1" --value "$TEST_VALUE_1" --type String --overwrite
-          aws --endpoint-url=http://localhost:4566 ssm put-parameter --name "$TEST_PARAM_2" --value "$TEST_VALUE_2" --type String --overwrite
+          # Create test parameters in LocalStack
+          echo "Creating test parameters in LocalStack..."
+          aws --endpoint-url=http://localhost:4566 ssm put-parameter \
+            --name "$TEST_PARAM_1" --value "$TEST_VALUE_1" --type String --overwrite
+          aws --endpoint-url=http://localhost:4566 ssm put-parameter \
+            --name "$TEST_PARAM_2" --value "$TEST_VALUE_2" --type String --overwrite
+
           # Verify parameters were created
-          aws --endpoint-url=http://localhost:4566 ssm get-parameter --name "$TEST_PARAM_1" --query "Parameter.Value"
-          aws --endpoint-url=http://localhost:4566 ssm get-parameter --name "$TEST_PARAM_2" --query "Parameter.Value"
+          param1_value=$(aws --endpoint-url=http://localhost:4566 ssm get-parameter \
+              --name "$TEST_PARAM_1" --query "Parameter.Value" --output text 2>/dev/null)
+          
+          if [ "$param1_value" = "$TEST_VALUE_1" ]; then
+            echo "✅ Test parameters created successfully!"
+          else
+            echo "::error::Failed to create test parameters"
+            exit 1
+          fi
+          
+          echo "CHAMBER_AWS_SSM_ENDPOINT=http://localhost:4566" >> $GITHUB_ENV
 
-      # Install Chamber locally for testing
+      # Install Chamber
       - name: Install Chamber
+        run: make install-chamber
+
+      # Run the actual tests with all configurations
+      - name: Run action tests
         run: |
-          CHAMBER_VERSION="2.10.12" # using a specific stable version
-          echo "Installing Chamber version $CHAMBER_VERSION..."
-          mkdir -p /tmp/chamber
-          curl -sSL "https://github.com/segmentio/chamber/releases/download/v${CHAMBER_VERSION}/chamber-v${CHAMBER_VERSION}-linux-amd64" -o /tmp/chamber/chamber
-          chmod +x /tmp/chamber/chamber
-          sudo mv /tmp/chamber/chamber /usr/local/bin/chamber
-          chamber version
-
-      # Test action with namespaced parameters
-      - name: Test action with namespaced parameters
-        uses: ./
-        with:
-          parameters: |
-            ${{ env.TEST_PARAM_1 }}
-            ${{ env.TEST_PARAM_2 }}
-          namespaced: 'true'
-          aws-region: 'us-east-1'
-          aws-access-key-id: 'test'
-          aws-secret-access-key: 'test'
-
-      # Verify environment variables are set correctly
-      - name: Verify namespaced environment variables
-        run: |
-          if [ "$TEST_ACTION_PARAM1" != "$TEST_VALUE_1" ]; then
-            echo "Namespaced test failed: TEST_ACTION_PARAM1 = $TEST_ACTION_PARAM1, expected $TEST_VALUE_1"
+          echo "=========================================="
+          echo "Testing namespaced parameters (default)..."
+          echo "=========================================="
+          
+          # Test namespaced parameters
+          ./node_modules/.bin/ts-node src/main.ts \
+            --parameters "/test-action/param1
+                          /test-action/param2" \
+            --namespaced "true" \
+            --aws-region "$AWS_REGION" \
+            --aws-access-key-id "test" \
+            --aws-secret-access-key "test" \
+            --chamber-version "$CHAMBER_VERSION"
+          
+          if [ "$TEST_ACTION_PARAM1" != "value1" ]; then
+            echo "❌ Namespaced test failed"
             exit 1
           fi
-          if [ "$TEST_ACTION_PARAM2" != "$TEST_VALUE_2" ]; then
-            echo "Namespaced test failed: TEST_ACTION_PARAM2 = $TEST_ACTION_PARAM2, expected $TEST_VALUE_2"
+          echo "✅ Namespaced parameter test passed"
+          
+          echo "=========================================="
+          echo "Testing non-namespaced parameters..."
+          echo "=========================================="
+          
+          # Test non-namespaced parameters
+          ./node_modules/.bin/ts-node src/main.ts \
+            --parameters "/test-action/param1
+                          /test-action/param2" \
+            --namespaced "false" \
+            --aws-region "$AWS_REGION" \
+            --aws-access-key-id "test" \
+            --aws-secret-access-key "test" \
+            --chamber-version "$CHAMBER_VERSION"
+          
+          if [ "$PARAM1" != "value1" ]; then
+            echo "❌ Non-namespaced test failed"
             exit 1
           fi
-          echo "Namespaced test passed!"
-
-      # Test action with non-namespaced parameters
-      - name: Test action with non-namespaced parameters
-        uses: ./
-        with:
-          parameters: |
-            ${{ env.TEST_PARAM_1 }}
-            ${{ env.TEST_PARAM_2 }}
-          namespaced: 'false'
-          aws-region: 'us-east-1'
-          aws-access-key-id: 'test'
-          aws-secret-access-key: 'test'
-
-      # Verify environment variables are set correctly
-      - name: Verify non-namespaced environment variables
-        run: |
-          if [ "$PARAM1" != "$TEST_VALUE_1" ]; then
-            echo "Non-namespaced test failed: PARAM1 = $PARAM1, expected $TEST_VALUE_1"
+          echo "✅ Non-namespaced parameter test passed"
+          
+          echo "=========================================="
+          echo "Testing custom parameter mappings..."
+          echo "=========================================="
+          
+          # Test custom parameter mappings
+          ./node_modules/.bin/ts-node src/main.ts \
+            --parameters "/test-action/param1:CUSTOM_PARAM_1
+                          /test-action/param2:CUSTOM_PARAM_2" \
+            --namespaced "true" \
+            --aws-region "$AWS_REGION" \
+            --aws-access-key-id "test" \
+            --aws-secret-access-key "test" \
+            --chamber-version "$CHAMBER_VERSION"
+          
+          if [ "$CUSTOM_PARAM_1" != "value1" ]; then
+            echo "❌ Custom mapping test failed"
             exit 1
           fi
-          if [ "$PARAM2" != "$TEST_VALUE_2" ]; then
-            echo "Non-namespaced test failed: PARAM2 = $PARAM2, expected $TEST_VALUE_2"
-            exit 1
-          fi
-          echo "Non-namespaced test passed!"
+          echo "✅ Custom parameter mapping test passed"
+          
+          echo "=========================================="
+          echo "🎉 All tests passed successfully!"
+          echo "=========================================="
 
-      # Test action with custom parameter mappings
-      - name: Test action with custom parameter mappings
-        uses: ./
-        with:
-          parameters: |
-            ${{ env.TEST_PARAM_1 }}:CUSTOM_PARAM_1
-            ${{ env.TEST_PARAM_2 }}:CUSTOM_PARAM_2
-          namespaced: 'true'
-          aws-region: 'us-east-1'
-          aws-access-key-id: 'test'
-          aws-secret-access-key: 'test'
-
-      # Verify environment variables are set correctly
-      - name: Verify custom parameter mappings
-        run: |
-          if [ "$CUSTOM_PARAM_1" != "$TEST_VALUE_1" ]; then
-            echo "Custom mapping test failed: CUSTOM_PARAM_1 = $CUSTOM_PARAM_1, expected $TEST_VALUE_1"
-            exit 1
-          fi
-          if [ "$CUSTOM_PARAM_2" != "$TEST_VALUE_2" ]; then
-            echo "Custom mapping test failed: CUSTOM_PARAM_2 = $CUSTOM_PARAM_2, expected $TEST_VALUE_2"
-            exit 1
-          fi
-          echo "Custom mapping test passed!"
-
-      - name: Clean up
+      # Clean up
+      - name: Clean up resources
+        if: always()
         run: docker compose down
