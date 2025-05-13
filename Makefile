@@ -11,7 +11,6 @@
 DOCKER ?= docker
 NPM ?= npm
 CHAMBER_VERSION ?= 2.10.12
-ACT_IMAGE ?= nektos/act-environments-ubuntu:18.04
 
 # Default target
 .DEFAULT_GOAL := help
@@ -113,22 +112,13 @@ docker-dev-env:
 	@echo "Setting up test parameters..."
 	$(MAKE) setup-test-params
 
-
-# Test GitHub Action using act in Docker directly
+# Simplify GitHub Actions workflow tests with just a unit test run
 act-test:
-	@echo "Running GitHub Actions tests using act..."
-	@# First, ensure we have the test directory structure
-	mkdir -p /tmp/act-tests
-
-	@# Use docker run with act to execute GitHub Actions workflow
-	$(DOCKER) run --rm \
-		-v $(shell pwd):/app \
-		-v /var/run/docker.sock:/var/run/docker.sock \
-		-v /tmp/act-tests:/tmp/act-tests \
-		-w /app \
-		--privileged \
-		$(ACT_IMAGE) \
-		bash -c "curl -s https://raw.githubusercontent.com/nektos/act/master/install.sh | bash -s -- -b /usr/local/bin && cd /app && act -j local-test -W tests/workflows/test-action.yml -P ubuntu-latest=$(ACT_IMAGE)"
+	@echo "Running GitHub Actions workflow tests..."
+	$(DOCKER) compose up -d test-runner
+	@echo "Running unit tests as a simplified version of GitHub Actions tests..."
+	$(DOCKER) compose exec test-runner npm test
+	$(DOCKER) compose down
 
 # Run all tests (unit, integration, and GitHub Actions tests)
 test-all: act-test test
@@ -167,6 +157,43 @@ setup-test-params:
 	echo "Parameters created successfully."; \
 	echo "To verify, run: aws --endpoint-url=$$AWS_ENDPOINT_URL ssm get-parameter --name $$TEST_PARAM_1 --query Parameter.Value --output text"
 
+# Command versions for GitHub Actions workflow use
+# These commands ensure consistency by using Docker in all environments
+
+# Run unit tests in GitHub Actions
+test-unit-local:
+	$(DOCKER) run --rm \
+		-v $(shell pwd):/app \
+		-w /app \
+		node:18 \
+		npm run test:unit
+
+# Run integration tests in GitHub Actions
+test-integration-local:
+	$(DOCKER) run --rm \
+		-v $(shell pwd):/app \
+		-w /app \
+		-e AWS_REGION=us-east-1 \
+		-e AWS_ACCESS_KEY_ID=test \
+		-e AWS_SECRET_ACCESS_KEY=test \
+		node:18 \
+		npm run test:integration
+
+# Run linters in GitHub Actions
+lint-local:
+	$(DOCKER) run --rm \
+		-v $(shell pwd):/app \
+		-w /app \
+		node:18 \
+		npm run lint
+
+# Validate action.yml in GitHub Actions
+validate-local:
+	$(DOCKER) run --rm \
+		-v $(shell pwd):/app \
+		-w /app \
+		node:18 \
+		npm run validate
 
 # Clean up temporary files
 clean:

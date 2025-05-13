@@ -39,22 +39,12 @@ jobs:
       - name: Run validation
         id: validate
         if: matrix.check == 'validate'
-        run: |
-          if [ -f "Makefile" ]; then
-            make validate-local
-          else
-            npm run validate
-          fi
+        run: make validate-local
       
       - name: Run linters
         id: lint
         if: matrix.check == 'lint'
-        run: |
-          if [ -f "Makefile" ]; then
-            make lint-local
-          else
-            npm run lint
-          fi
+        run: make lint-local
       
       - name: Generate validation summary
         if: matrix.check == 'validate' && always()

@@ -223,12 +223,13 @@ This project uses optimized GitHub Actions workflows for testing and CI/CD:
    - Configuration tests for different parameter setups
 3. **Usage Example** - Demonstrates action usage in real workflows
 
-To test locally with GitHub Actions:
+To test locally (all commands use Docker):
 
 ```bash
-make act-test  # Test GitHub Actions workflow in Docker
-# OR
-make test-all  # Run ALL tests (GitHub Actions, unit, and integration tests)
+make test-unit        # Run only unit tests
+make test-integration # Run only integration tests with LocalStack
+make test             # Run all tests (unit + integration)
+make test-all         # Run ALL tests in sequence
 ```
 
 

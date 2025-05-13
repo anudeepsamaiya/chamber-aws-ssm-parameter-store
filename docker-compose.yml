@@ -24,9 +24,6 @@ services:
   # Test runner container
   test-runner:
     image: node:18
-    depends_on:
-      localstack:
-        condition: service_healthy
     working_dir: /app
     volumes:
       - .:/app

@@ -41,12 +41,7 @@ jobs:
         
       - name: Run unit tests
         id: unit_tests
-        run: |
-          if [ -f "Makefile" ]; then
-            make test-unit-local
-          else
-            npm run test:unit
-          fi
+        run: make test-unit-local
       
       - name: Upload test coverage
         if: success()
@@ -151,12 +146,7 @@ jobs:
       # Run integration tests
       - name: Run integration tests
         id: integration_tests
-        run: |
-          if [ -f "Makefile" ]; then
-            make test-integration-local
-          else
-            npm run test:integration
-          fi
+        run: make test-integration-local
       
       # Test configurations in parallel using a matrix
       - name: Test parameter configurations
